@@ -22,11 +22,13 @@ plumbing as any other artifact.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from bat._util import format_utc
 
 from bat.artifacts.model import Artifact, ArtifactConflictError
 
@@ -61,9 +63,7 @@ def meta_path(run_dir: Path | str, artifact_name: str) -> Path:
 
 def _format_timestamp(timestamp: datetime) -> str:
     """Render a timestamp as UTC ``YYYY-MM-DDTHH:MM:SSZ``."""
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=timezone.utc)
-    return timestamp.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return format_utc(timestamp)
 
 
 def _display_path(run_dir: Path, artifact_name: str) -> str:

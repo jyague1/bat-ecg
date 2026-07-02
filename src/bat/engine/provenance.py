@@ -32,11 +32,13 @@ import hashlib
 import importlib.metadata
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from bat._util import format_utc
 
 from bat.artifacts.model import Artifact
 from bat.engine.run import RunContext
@@ -163,9 +165,7 @@ def _iso(dt: datetime | None) -> str | None:
     """Render ``dt`` as a UTC ``YYYY-MM-DDTHH:MM:SSZ`` string, or ``None``."""
     if dt is None:
         return None
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return format_utc(dt)
 
 
 def _step_to_dict(step: StepRecord) -> dict:

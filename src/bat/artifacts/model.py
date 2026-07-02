@@ -22,19 +22,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-#: Default on-disk format for each recognized artifact type.
-DEFAULT_FORMATS: dict[str, str] = {
-    "signal": "wfdb",
-    "annotations": "wfdb",
-    "features": "parquet",
-    "metadata": "yaml",
-    "error": "yaml",
-    "model": "onnx",
-    "report": "html",
-}
+# Re-exported from the shared source of truth (bat.artifacts.types) so
+# existing references to bat.artifacts.model.DEFAULT_FORMATS /
+# ARTIFACT_TYPES keep working.
+from bat.artifacts.types import ARTIFACT_TYPES, DEFAULT_FORMATS
 
-#: Valid values for :attr:`Artifact.artifact_type`.
-ARTIFACT_TYPES = frozenset(DEFAULT_FORMATS)
+__all__ = ["ARTIFACT_TYPES", "DEFAULT_FORMATS", "Artifact", "ArtifactConflictError"]
 
 
 class ArtifactConflictError(Exception):
