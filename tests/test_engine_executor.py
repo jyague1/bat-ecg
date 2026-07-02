@@ -529,11 +529,13 @@ def test_remap_renames_single_output_positionally_when_keys_differ():
 
     result = _remap_outputs_to_step_names(step, _fixed_output_module(), outputs)
 
+    # Only the dict *key* is remapped here; the artifact's own .name is
+    # left untouched by this function -- _relocate_artifact (called by
+    # _execute_step for every declared output, remapped or not) is what
+    # authoritatively sets .name to the step-declared name afterward.
     assert set(result.keys()) == {"raw_signal"}
-    assert result["raw_signal"].name == "raw_signal"
-    # Original artifact object/dict must be untouched (a new dataclass
-    # instance is produced via dataclasses.replace).
-    assert artifact.name == "signal"
+    assert result["raw_signal"] is artifact
+    assert result["raw_signal"].name == "signal"
 
 
 def test_remap_skipped_when_module_has_no_schema():
