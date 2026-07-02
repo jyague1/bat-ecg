@@ -2,6 +2,10 @@
 
 These only check that each command/subcommand is reachable, exits 0, and
 prints a "not implemented" stub message — no business logic is exercised.
+
+``run``/``dry-run`` grew real behavior in CARD-016 (see
+``tests/test_cli_run.py``), so their stub-specific assertions have been
+removed here; only the generic ``--help`` reachability checks remain.
 """
 
 from click.testing import CliRunner
@@ -49,23 +53,6 @@ def test_init_help_exits_zero():
     runner = CliRunner()
     result = runner.invoke(main, ["init", "--help"])
     assert result.exit_code == 0
-
-
-def test_run_stub_exits_zero():
-    runner = CliRunner()
-    result = runner.invoke(main, ["run", "protocol.yaml"])
-    assert result.exit_code == 0
-    assert "not implemented" in result.output
-
-
-def test_run_dry_run_flag_matches_dry_run_command():
-    runner = CliRunner()
-    run_result = runner.invoke(main, ["run", "protocol.yaml", "--dry-run"])
-    dry_run_result = runner.invoke(main, ["dry-run", "protocol.yaml"])
-    assert run_result.exit_code == 0
-    assert dry_run_result.exit_code == 0
-    assert "not implemented" in run_result.output
-    assert "not implemented" in dry_run_result.output
 
 
 def test_plugins_list_stub_exits_zero():
