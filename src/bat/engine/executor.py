@@ -35,6 +35,7 @@ See ``cards/backlog/CARD-010-dag-execution-engine.md`` and
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 from bat.artifacts.registry import ArtifactRegistry
@@ -218,6 +219,69 @@ def execute_protocol(
             raise
 
 
+def _remap_outputs_to_step_names(
+    step: Step, module: Any, outputs: dict[str, Any]
+) -> dict[str, Any]:
+    """Remap a module's returned outputs dict from schema field names to
+    the step's declared artifact names, when they differ (CARD-019).
+
+    A module's ``schema.Outputs`` declares a *fixed* output field name
+    (e.g. ``core.wfdb.read``'s schema has a single output called
+    ``signal``), but a protocol step is free to declare an arbitrary
+    artifact name for that same output (e.g. ``outputs: {raw_signal:
+    {...}}``). A module has no way of knowing, from inside ``run()``, what
+    name the step gave its output -- it can only reasonably return a dict
+    keyed by its own schema's output field names (e.g. ``{"signal":
+    Artifact(...)}``).
+
+    This helper bridges that gap: if the module exposes a ``schema``
+    attribute with an ``Outputs`` Pydantic model, and the set of keys
+    ``module.run()`` returned doesn't match the set of keys declared in
+    ``step.outputs``, but the two are the same *size* as the schema's own
+    output fields, the returned dict is remapped positionally -- the i-th
+    schema output field name maps to the i-th step-declared output name,
+    relying on both being ordered mappings (plain dicts and YAML-loaded
+    mappings preserve declaration order). Each remapped artifact also has
+    its ``.name`` updated to the step-declared name, since ``Artifact.name``
+    is meant to reflect the actual protocol-level artifact name, not the
+    module's internal schema field name.
+
+    If the returned dict's keys already match ``step.outputs``' keys
+    exactly (true of every pre-CARD-019 module/test fixture), this is a
+    no-op -- remapping only ever kicks in on an actual mismatch, so
+    pre-existing behavior is fully preserved.
+    """
+    step_output_names = set(step.outputs.keys())
+    returned_names = set(outputs.keys())
+    if step_output_names == returned_names:
+        return outputs
+
+    schema = getattr(module, "schema", None)
+    outputs_model = getattr(schema, "Outputs", None) if schema is not None else None
+    if outputs_model is None:
+        return outputs
+
+    schema_fields = list(outputs_model.model_fields.keys())
+    if not (len(schema_fields) == len(step.outputs) == len(outputs)):
+        return outputs
+
+    step_names = list(step.outputs.keys())
+    remapped: dict[str, Any] = {}
+    for schema_name, step_name in zip(schema_fields, step_names):
+        if schema_name not in outputs:
+            # Doesn't line up with what the module actually returned --
+            # bail out and let the caller's own missing-outputs check
+            # produce a clear error instead of silently misremapping.
+            return outputs
+        artifact = outputs[schema_name]
+        if dataclasses.is_dataclass(artifact) and not isinstance(artifact, type):
+            artifact = dataclasses.replace(artifact, name=step_name)
+        elif hasattr(artifact, "name"):
+            artifact.name = step_name
+        remapped[step_name] = artifact
+    return remapped
+
+
 def _execute_step(
     step: Step,
     workflow_name: str,
@@ -268,6 +332,7 @@ def _execute_step(
 
         step_logger.info("running step %r (module=%s)", step.id, step.module)
         outputs: dict[str, Any] = module.run(inputs, step.params, context)
+        outputs = _remap_outputs_to_step_names(step, module, outputs)
 
         missing = [name for name in step.outputs if name not in outputs]
         if missing:
