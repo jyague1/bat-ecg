@@ -14,7 +14,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from pydantic import BaseModel
 
 from bat.artifacts.model import Artifact

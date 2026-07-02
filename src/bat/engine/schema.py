@@ -84,7 +84,7 @@ class Protocol(BaseModel):
     workflows: dict[str, Workflow] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def _validate_workflow_depends_on(self) -> "Protocol":
+    def _validate_workflow_depends_on(self) -> Protocol:
         """Every workflow ``depends_on`` entry must name an existing workflow."""
         workflow_names = set(self.workflows.keys())
         for wf_name, workflow in self.workflows.items():
@@ -97,7 +97,7 @@ class Protocol(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_unique_step_ids(self) -> "Protocol":
+    def _validate_unique_step_ids(self) -> Protocol:
         """Step IDs must be unique across the whole protocol."""
         seen: dict[str, str] = {}
         for wf_name, workflow in self.workflows.items():
@@ -112,7 +112,7 @@ class Protocol(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_step_depends_on(self) -> "Protocol":
+    def _validate_step_depends_on(self) -> Protocol:
         """Step ``depends_on`` entries must reference a step id within the same workflow."""
         for wf_name, workflow in self.workflows.items():
             step_ids = {step.id for step in workflow.steps}
@@ -127,7 +127,7 @@ class Protocol(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_unique_artifact_names(self) -> "Protocol":
+    def _validate_unique_artifact_names(self) -> Protocol:
         """Artifact names declared in ``outputs`` must be unique across the protocol."""
         seen: dict[str, tuple[str, str]] = {}
         for wf_name, workflow in self.workflows.items():
@@ -157,7 +157,7 @@ class Protocol(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_artifact_inputs(self) -> "Protocol":
+    def _validate_artifact_inputs(self) -> Protocol:
         """Every ``inputs.*.artifact`` reference must name a declared artifact.
 
         Full dependency-ordering resolution (i.e. checking that the artifact

@@ -29,7 +29,6 @@ from typing import Any
 import yaml
 
 from bat._util import format_utc
-
 from bat.artifacts.model import Artifact, ArtifactConflictError
 
 __all__ = [

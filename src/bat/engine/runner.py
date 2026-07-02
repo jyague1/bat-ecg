@@ -30,7 +30,7 @@ provenance (most executor tests) simply omit it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -259,8 +259,8 @@ def run_protocol(
     try:
         execute_protocol(protocol, registry, plugin_registry, run_ctx, records=records)
     except StepExecutionError as exc:
-        failed_step_id = getattr(exc, "step_id", None)
-        failed_workflow_id = getattr(exc, "workflow_id", None)
+        failed_step_id = exc.step_id
+        failed_workflow_id = exc.workflow_id
         run_error = str(exc)
         run_stopped = True
 

@@ -51,10 +51,12 @@ class WFDBWriteSchema(ModuleSchema):
         )
 
     class Inputs(BaseModel):
-        signal: InputField(artifact_type="signal", artifact_format="wfdb")
+        # InputField()/OutputField() return Annotated[...] used as the
+        # field type; mypy can't follow this Pydantic DSL (bat.plugins.schema).
+        signal: InputField(artifact_type="signal", artifact_format="wfdb")  # type: ignore[valid-type]
 
     class Outputs(BaseModel):
-        exported_signal: OutputField(artifact_type="signal", artifact_format="wfdb")
+        exported_signal: OutputField(artifact_type="signal", artifact_format="wfdb")  # type: ignore[valid-type]
 
 
 schema = WFDBWriteSchema

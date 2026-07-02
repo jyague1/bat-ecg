@@ -51,7 +51,9 @@ class WFDBReadSchema(ModuleSchema):
         pass
 
     class Outputs(BaseModel):
-        signal: OutputField(artifact_type="signal", artifact_format="wfdb")
+        # OutputField() returns an Annotated[...] used as the field's type;
+        # mypy can't follow this Pydantic DSL (see bat.plugins.schema).
+        signal: OutputField(artifact_type="signal", artifact_format="wfdb")  # type: ignore[valid-type]
 
 
 schema = WFDBReadSchema

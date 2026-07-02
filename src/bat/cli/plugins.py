@@ -34,7 +34,7 @@ def _type_name(annotation: Any) -> str:
     return getattr(annotation, "__name__", str(annotation))
 
 
-def _format_params(schema: type) -> str:
+def _format_params(schema: Any) -> str:
     """Render a module schema's ``Params`` fields as a compact, comma
     separated summary, e.g. ``path (str, required), gain (float, default:
     1.0)``. Returns ``"(none)"`` if the module declares no params."""
@@ -52,7 +52,7 @@ def _format_params(schema: type) -> str:
     return ", ".join(parts)
 
 
-def _format_artifacts(model: type) -> str:
+def _format_artifacts(model: Any) -> str:
     """Render an ``Inputs``/``Outputs`` model's fields as a compact, comma
     separated summary, e.g. ``signal (type: signal, format: wfdb)``.
     Returns ``"(none)"`` if the model declares no fields."""

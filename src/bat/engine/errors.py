@@ -48,8 +48,20 @@ class StepExecutionError(Exception):
     Raised by the executor (not this module) once :func:`handle_step_error`
     reports that execution should stop. The original exception is chained
     via ``raise ... from exc`` so the traceback and root cause are still
-    visible.
+    visible. ``step_id`` / ``workflow_id`` identify the failing step so the
+    runner can report it without parsing the message.
     """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        step_id: str | None = None,
+        workflow_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.step_id = step_id
+        self.workflow_id = workflow_id
 
 
 def _format_traceback(exc: Exception) -> str:

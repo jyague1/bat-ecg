@@ -6,7 +6,6 @@ creation and layout, timestamp-based and named run ids, collision errors,
 writing ``resolved_protocol.yaml``, and the run-scoped log file.
 """
 
-import logging
 import re
 
 import pytest

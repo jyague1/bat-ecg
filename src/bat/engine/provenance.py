@@ -39,7 +39,6 @@ from typing import Any
 import yaml
 
 from bat._util import format_utc
-
 from bat.artifacts.model import Artifact
 from bat.engine.run import RunContext
 
@@ -302,12 +301,12 @@ def build_environment_record(plugin_registry: dict) -> dict:
 
     plugins = []
     for namespace in namespaces:
-        entry_point = entry_points_by_name.get(namespace)
-        if entry_point is not None:
+        matched_ep = entry_points_by_name.get(namespace)
+        if matched_ep is not None:
             plugins.append(
                 {
                     "name": namespace,
-                    "version": _entry_point_version(entry_point),
+                    "version": _entry_point_version(matched_ep),
                     "source": "installed",
                 }
             )

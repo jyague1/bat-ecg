@@ -12,6 +12,7 @@ output structure this module reproduces.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -40,7 +41,7 @@ def _type_name(annotation: Any) -> str:
     return getattr(annotation, "__name__", str(annotation))
 
 
-def _render_table(headers: list[str], rows: list[tuple[str, ...]]) -> str:
+def _render_table(headers: list[str], rows: Sequence[tuple[str, ...]]) -> str:
     """Render a padded, GitHub-flavored Markdown table."""
     widths = [len(h) for h in headers]
     for row in rows:
@@ -55,7 +56,7 @@ def _render_table(headers: list[str], rows: list[tuple[str, ...]]) -> str:
     return "\n".join(lines)
 
 
-def _params_table(schema: type) -> str:
+def _params_table(schema: Any) -> str:
     """Render a module schema's ``Params`` fields as a Markdown table with
     Name/Type/Required/Default/Description columns. Returns ``"(none)"`` if
     the module declares no params."""
@@ -79,7 +80,7 @@ def _params_table(schema: type) -> str:
     return _render_table(["Name", "Type", "Required", "Default", "Description"], rows)
 
 
-def _artifacts_table(model: type) -> str:
+def _artifacts_table(model: Any) -> str:
     """Render an ``Inputs``/``Outputs`` model's fields as a Markdown table
     with Name/Type/Format columns. Returns ``"(none)"`` if the model
     declares no fields."""
