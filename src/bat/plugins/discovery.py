@@ -21,16 +21,24 @@ are discovered and merged into a single flat registry:
    is treated as a collection; the directory/file name (minus ``.py``)
    becomes the top-level namespace.
 
-A submodule is registered as a plugin *module* if it looks like one: it
-must expose a callable ``run`` attribute. (Strict interface/schema
-validation, including citation enforcement, is out of scope for this card
--- see ``cards/backlog/CARD-007-plugin-interface-schema.md``.)
+A submodule is a *candidate* plugin module if it looks like one: it must
+expose a callable ``run`` attribute (modules without one, e.g. plain
+helpers living alongside real modules in a package, are silently
+skipped). Every candidate module is then required to conform to the
+standard BAT plugin interface defined in
+``cards/backlog/CARD-007-plugin-interface-schema.md``: it must expose a
+``schema`` attribute that is a ``bat.plugins.schema.ModuleSchema``
+subclass, with a valid ``Meta.citations`` (a non-empty list of strings, or
+the literal string ``"none"``). A candidate module that fails either check
+is a discovery error -- it looked like a plugin module (it has ``run``)
+but does not fully conform to the interface.
 
 If the same dotted module name is produced by more than one source, or
 more than once within a source, discovery fails with
 :class:`PluginDiscoveryError` naming both sources.
 
-See ``cards/backlog/CARD-006-plugin-discovery.md`` for the full spec.
+See ``cards/backlog/CARD-006-plugin-discovery.md`` and
+``cards/backlog/CARD-007-plugin-interface-schema.md`` for the full spec.
 """
 
 from __future__ import annotations
@@ -43,13 +51,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from bat.plugins.schema import ModuleSchema, citations_are_valid
+
 
 class PluginDiscoveryError(Exception):
     """Raised when plugin discovery fails.
 
-    This covers both duplicate module-name registration (the same dotted
-    name produced by two different sources) and failures while importing a
-    discovered module or package.
+    This covers duplicate module-name registration (the same dotted name
+    produced by two different sources), failures while importing a
+    discovered module or package, and a candidate module (one that exposes
+    ``run``) that does not conform to the standard plugin interface (a
+    missing/invalid ``schema`` or missing/invalid ``Meta.citations``).
     """
 
 
@@ -92,7 +104,41 @@ def _register(
             f"Duplicate plugin module {name!r}: registered from both "
             f"{existing_source} and {source}"
         )
+    _validate_module_interface(name, module, source)
     collected[name] = (module, source)
+
+
+def _validate_module_interface(name: str, module: Any, source: str) -> None:
+    """Enforce the standard plugin interface (CARD-007) on a candidate
+    module (one that already passed :func:`_looks_like_plugin_module`,
+    i.e. exposes a callable ``run``).
+
+    The module must expose a ``schema`` attribute that is a
+    ``ModuleSchema`` subclass, and that schema's ``Meta.citations`` must be
+    a non-empty list of strings or the literal string ``"none"``.
+    """
+    schema = getattr(module, "schema", None)
+    if schema is None:
+        raise PluginDiscoveryError(
+            f"Plugin module {name!r} (from {source}) does not define a "
+            f"'schema' attribute; every plugin module must provide a "
+            f"bat.plugins.schema.ModuleSchema subclass describing it."
+        )
+
+    if not (isinstance(schema, type) and issubclass(schema, ModuleSchema)):
+        raise PluginDiscoveryError(
+            f"Plugin module {name!r} (from {source}) 'schema' attribute must "
+            f"be a class inheriting from bat.plugins.schema.ModuleSchema, "
+            f"got {schema!r}."
+        )
+
+    citations = getattr(schema.Meta, "citations", None)
+    if not citations_are_valid(citations):
+        raise PluginDiscoveryError(
+            f"Plugin module {name!r} (from {source}) has missing or invalid "
+            f"Meta.citations ({citations!r}); it must be a non-empty "
+            f"list[str], or the literal string 'none'."
+        )
 
 
 def _looks_like_plugin_module(obj: Any) -> bool:
