@@ -309,3 +309,63 @@ workflows:
     assert missing_module_error, f"missing-module error not found in {errors}"
     assert bad_depends_on_error, f"bad depends_on error not found in {errors}"
     assert len(errors) >= 2
+
+
+# --------------------------------------------------------------------------
+# Dependency cycles (improvement: cycle detection)
+# --------------------------------------------------------------------------
+
+
+def test_workflow_dependency_cycle_is_reported(tmp_path):
+    protocol = """\
+version: "0.1"
+workflows:
+  first:
+    depends_on: [second]
+    steps:
+      - id: s1
+        name: S1
+        module: core.wfdb.read
+  second:
+    depends_on: [first]
+    steps:
+      - id: s2
+        name: S2
+        module: core.wfdb.read
+"""
+    path = write(tmp_path, "protocol.yaml", protocol)
+    errors = validate_protocol(path)
+
+    assert any(
+        e.startswith("workflows: dependency cycle detected:") for e in errors
+    ), f"workflow cycle not reported in {errors}"
+
+
+def test_step_dependency_cycle_is_reported(tmp_path):
+    protocol = """\
+version: "0.1"
+workflows:
+  main:
+    steps:
+      - id: a
+        name: A
+        module: core.wfdb.read
+        depends_on: [b]
+      - id: b
+        name: B
+        module: core.wfdb.read
+        depends_on: [a]
+"""
+    path = write(tmp_path, "protocol.yaml", protocol)
+    errors = validate_protocol(path)
+
+    assert any(
+        e.startswith("workflows.main.steps: dependency cycle detected:") for e in errors
+    ), f"step cycle not reported in {errors}"
+
+
+def test_valid_protocol_has_no_cycle_errors(tmp_path):
+    path = write(tmp_path, "protocol.yaml", VALID_PROTOCOL)
+    errors = validate_protocol(path)
+
+    assert not any("cycle detected" in e for e in errors), errors

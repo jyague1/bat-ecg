@@ -230,4 +230,100 @@ def _check_structure(data: dict[str, Any]) -> list[str]:
                         else:
                             seen_artifact_names[artifact_name] = step_label
 
+    errors.extend(_cycle_errors(workflows))
+
+    return errors
+
+
+def _detect_cycle(nodes: list[str], deps: dict[str, list[str]]) -> list[str] | None:
+    """Return one concrete cycle (as a node path) in a ``depends_on`` graph, or None.
+
+    A standalone DFS three-colouring so that :mod:`bat.engine.validation`
+    stays independent of the executor (its whole point is a lightweight,
+    raw-dict pass). ``deps`` targets that aren't in ``nodes`` are ignored by
+    the caller before this runs, so missing-reference errors are reported
+    separately and don't produce spurious cycle noise here.
+    """
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {n: WHITE for n in nodes}
+    path: list[str] = []
+
+    def visit(node: str) -> list[str] | None:
+        color[node] = GRAY
+        path.append(node)
+        for dep in deps.get(node, []):
+            if dep not in color:
+                continue
+            if color[dep] == GRAY:
+                return path[path.index(dep):] + [dep]
+            if color[dep] == WHITE:
+                found = visit(dep)
+                if found is not None:
+                    return found
+        path.pop()
+        color[node] = BLACK
+        return None
+
+    for node in nodes:
+        if color[node] == WHITE:
+            found = visit(node)
+            if found is not None:
+                return found
+    return None
+
+
+def _cycle_errors(workflows: dict[str, Any]) -> list[str]:
+    """Collect dependency-cycle errors for the workflow graph and each step graph.
+
+    Tolerant of malformed input (non-dict workflows/steps, non-list
+    ``depends_on``, ids that aren't strings): such entries are simply
+    skipped, since they're already reported by the structural checks. Only
+    ``depends_on`` targets that name a known node participate, so a cycle is
+    reported once and never conflated with a missing-reference error.
+    """
+    errors: list[str] = []
+
+    workflow_names = list(workflows.keys())
+    workflow_deps: dict[str, list[str]] = {}
+    for name, workflow in workflows.items():
+        raw = workflow.get("depends_on") if isinstance(workflow, dict) else None
+        workflow_deps[name] = (
+            [d for d in raw if d in workflows] if isinstance(raw, list) else []
+        )
+    cycle = _detect_cycle(workflow_names, workflow_deps)
+    if cycle is not None:
+        errors.append(
+            "workflows: dependency cycle detected: " + " -> ".join(cycle)
+        )
+
+    for wf_name, workflow in workflows.items():
+        if not isinstance(workflow, dict):
+            continue
+        steps = workflow.get("steps")
+        if not isinstance(steps, list):
+            continue
+
+        step_ids = [
+            step["id"]
+            for step in steps
+            if isinstance(step, dict) and isinstance(step.get("id"), str)
+        ]
+        step_deps: dict[str, list[str]] = {}
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            step_id = step.get("id")
+            if not isinstance(step_id, str):
+                continue
+            raw = step.get("depends_on")
+            step_deps[step_id] = (
+                [d for d in raw if d in step_ids] if isinstance(raw, list) else []
+            )
+        cycle = _detect_cycle(step_ids, step_deps)
+        if cycle is not None:
+            errors.append(
+                f"workflows.{wf_name}.steps: dependency cycle detected: "
+                + " -> ".join(cycle)
+            )
+
     return errors
