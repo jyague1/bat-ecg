@@ -11,12 +11,18 @@ invoking the step's plugin module, and registering its declared outputs.
 
 Step-level error-handling semantics (deciding whether a failure stops the
 run or continues, and producing error artifacts) live in
-:mod:`bat.engine.errors`. This module is responsible for:
+:mod:`bat.engine.errors`. Post-step validation that declared outputs were
+actually registered and written inside the run's artifacts directory lives
+in :mod:`bat.engine.checks`. This module is responsible for:
 
+- Calling :func:`~bat.engine.checks.check_step_outputs` after a step's
+  outputs are registered, and treating a raised
+  :class:`~bat.engine.checks.ArtifactViolationError` as just another kind
+  of step failure.
 - Calling :func:`~bat.engine.errors.handle_step_error` when a step's
-  ``module.run()`` raises, and raising
-  :class:`~bat.engine.errors.StepExecutionError` when that call reports
-  the run should stop.
+  ``module.run()`` (or the output-restriction check above) raises, and
+  raising :class:`~bat.engine.errors.StepExecutionError` when that call
+  reports the run should stop.
 - Workflow-level ``on_error``: if a :class:`~bat.engine.errors.StepExecutionError`
   propagates out of a workflow whose own ``on_error.action == "continue"``,
   that workflow stops but the run moves on to the next workflow in
@@ -32,6 +38,7 @@ from __future__ import annotations
 from typing import Any
 
 from bat.artifacts.registry import ArtifactRegistry
+from bat.engine.checks import check_step_outputs
 from bat.engine.errors import StepExecutionError, handle_step_error
 from bat.engine.run import RunContext
 from bat.engine.schema import Protocol, Step
@@ -220,10 +227,21 @@ def _execute_step(
 ) -> None:
     """Run a single step: resolve inputs, invoke its module, register outputs.
 
-    On exception: delegates to :func:`~bat.engine.errors.handle_step_error`.
-    If it returns ``True`` (``on_error: continue`` handled the failure and
-    produced any declared error artifacts), execution returns normally so
-    the caller moves on to the next step. If it returns ``False``, raises
+    After a step's declared outputs are registered,
+    :func:`~bat.engine.checks.check_step_outputs` runs as a final,
+    best-effort validation that every declared artifact was actually
+    registered and written to disk inside the run's ``artifacts/``
+    directory (see ``cards/backlog/CARD-013-output-restriction-check.md``).
+    A violation it raises is just another kind of step failure and is
+    handled by the same ``except`` block below -- it never runs from
+    within that block, only on the success path, per the card.
+
+    On exception (including from ``module.run()`` itself or from the
+    output-restriction check above): delegates to
+    :func:`~bat.engine.errors.handle_step_error`. If it returns ``True``
+    (``on_error: continue`` handled the failure and produced any declared
+    error artifacts), execution returns normally so the caller moves on to
+    the next step. If it returns ``False``, raises
     :class:`StepExecutionError` chained from the original exception,
     stopping the run (subject to workflow-level ``on_error`` handling in
     :func:`execute_protocol`).
@@ -260,6 +278,8 @@ def _execute_step(
 
         for output_name in step.outputs:
             registry.register(outputs[output_name])
+
+        check_step_outputs(step, registry, run_ctx)
 
         step_logger.info("step %r completed", step.id)
     except Exception as exc:
