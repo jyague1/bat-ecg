@@ -2,8 +2,8 @@
 
 Groups plugin-discovery related subcommands: ``bat plugins list`` and
 ``bat plugins docs``. ``list`` shows what plugin modules are currently
-discoverable in the environment (CARD-017); documentation generation is
-still a stub, implemented by CARD-018.
+discoverable in the environment (CARD-017); ``docs`` renders full Markdown
+reference documentation for every discovered module (CARD-018).
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import click
 
 from bat.engine.provenance import build_environment_record
 from bat.plugins.discovery import PluginDiscoveryError, discover_plugins
+from bat.plugins.docs import generate_docs
 
 
 @click.group("plugins")
@@ -210,5 +211,18 @@ def list_(verbose, module) -> None:
 
 @plugins.command("docs")
 def docs() -> None:
-    """Generate plugin documentation."""
-    click.echo("bat plugins docs: not implemented yet")
+    """Generate Markdown documentation for all discovered plugin modules.
+
+    Runs plugin discovery (CARD-006) against the ``plugins/`` directory in
+    the current working directory (if any) plus any installed ``bat.plugins``
+    entry points -- same convention as ``bat plugins list``, no protocol
+    file required. The generated Markdown is printed to stdout; redirect to
+    a file to save it, e.g. ``bat plugins docs > docs/plugins.md``.
+    """
+    plugins_dir = Path.cwd() / "plugins"
+    try:
+        registry = discover_plugins(plugins_dir)
+    except PluginDiscoveryError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(generate_docs(registry))
