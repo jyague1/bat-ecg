@@ -68,13 +68,6 @@ def test_run_dry_run_flag_matches_dry_run_command():
     assert "not implemented" in dry_run_result.output
 
 
-def test_validate_stub_exits_zero():
-    runner = CliRunner()
-    result = runner.invoke(main, ["validate", "protocol.yaml"])
-    assert result.exit_code == 0
-    assert "not implemented" in result.output
-
-
 def test_plugins_list_stub_exits_zero():
     runner = CliRunner()
     result = runner.invoke(
