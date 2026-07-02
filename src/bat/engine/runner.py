@@ -56,7 +56,7 @@ from pathlib import Path
 
 from bat.artifacts.registry import ArtifactRegistry
 from bat.engine.errors import StepExecutionError
-from bat.engine.executor import check_acyclic, execute_protocol, topological_sort
+from bat.engine.executor import execute_protocol, topological_sort
 from bat.engine.loader import load_protocol
 from bat.engine.provenance import (
     ArtifactRecord,
@@ -152,21 +152,16 @@ def _load_and_validate(
     Raises:
         ProtocolError: If the protocol fails to load/parse/validate.
         CycleError: If any workflow-level or step-level ``depends_on`` graph
-            contains a cycle. Raised here, before the caller creates the run
-            directory, so a cyclic protocol never leaves an orphaned run dir.
+            contains a cycle. Raised by ``load_protocol`` below, before the
+            caller creates the run directory, so a cyclic protocol never
+            leaves an orphaned run dir. Handled as a pre-flight error by the
+            CLI (bat.cli.run._PREFLIGHT_ERRORS).
         PluginDiscoveryError: If plugin discovery itself fails (bad
             entry-point package, malformed local plugin module, etc).
         MissingModulesError: If one or more steps reference a module not
             present in the discovered plugin registry.
     """
     protocol = load_protocol(protocol_path, vars_file=vars_file, cli_vars=cli_vars)
-
-    # Detect dependency cycles up front. Without this, a cycle would only
-    # surface inside execute_protocol / _workflow_step_order -- after the
-    # run directory already exists -- leaving an orphaned run with no
-    # provenance. CycleError is already handled as a pre-flight error by
-    # the CLI (bat.cli.run._PREFLIGHT_ERRORS).
-    check_acyclic(protocol)
 
     plugins_dir = protocol_path.parent / "plugins"
     plugin_registry = discover_plugins(plugins_dir)

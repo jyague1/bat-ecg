@@ -78,7 +78,10 @@ class Protocol(BaseModel):
 
     version: str
     vars: dict[str, Any] = Field(default_factory=dict)
-    workflows: dict[str, Workflow]
+    # A protocol must contain at least one workflow (matches
+    # bat.engine.validation and the spec). Guarded by the parity test in
+    # tests/test_validation_parity.py.
+    workflows: dict[str, Workflow] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _validate_workflow_depends_on(self) -> "Protocol":
