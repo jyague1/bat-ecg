@@ -260,7 +260,7 @@ def execute_protocol(
     registry: ArtifactRegistry,
     plugin_registry: dict,
     run_ctx: RunContext,
-    records: "RunRecords | None" = None,
+    records: RunRecords | None = None,
 ) -> None:
     """Execute every workflow and step in ``protocol``, in topological order.
 
@@ -304,7 +304,7 @@ def execute_protocol(
         ordered_steps = [steps_by_id[step_id] for step_id in step_order]
         plan.append((workflow_name, workflow, ordered_steps))
 
-    for workflow_name, workflow, ordered_steps in plan:
+    for workflow_name, _workflow, ordered_steps in plan:
         wf_outcome = WorkflowOutcome(
             workflow_id=workflow_name,
             steps=[
@@ -340,8 +340,10 @@ def execute_protocol(
             wf_outcome.status = "partial" if had_handled_failure else "success"
             wf_outcome.finished_at = _now()
         except StepExecutionError as exc:
-            failed_id = getattr(exc, "step_id", None)
-            failed_outcome = step_outcome_by_id.get(failed_id)
+            failed_id = exc.step_id
+            failed_outcome = (
+                step_outcome_by_id.get(failed_id) if failed_id is not None else None
+            )
             if failed_outcome is not None:
                 failed_outcome.finished_at = _now()
                 failed_outcome.status = "failed"
@@ -409,7 +411,8 @@ def _remap_outputs_to_step_names(
 
     step_names = list(step.outputs.keys())
     remapped: dict[str, Any] = {}
-    for schema_name, step_name in zip(schema_fields, step_names):
+    # Lengths were verified equal just above, so strict= documents that.
+    for schema_name, step_name in zip(schema_fields, step_names, strict=True):
         if schema_name not in outputs:
             # Doesn't line up with what the module actually returned --
             # bail out and let the caller's own missing-outputs check
@@ -571,13 +574,14 @@ def _execute_step(
             logger=step_logger,
         )
         if not should_continue:
-            error = StepExecutionError(f"step {step.id!r} failed: {exc}")
-            # Attached so callers orchestrating a full run (CARD-016's
-            # bat.engine.runner) can report exactly which step/workflow
-            # failed without having to parse the message string.
-            error.step_id = step.id
-            error.workflow_id = workflow_name
-            raise error from exc
+            # step_id/workflow_id let callers orchestrating a full run
+            # (CARD-016's bat.engine.runner) report exactly which
+            # step/workflow failed without parsing the message string.
+            raise StepExecutionError(
+                f"step {step.id!r} failed: {exc}",
+                step_id=step.id,
+                workflow_id=workflow_name,
+            ) from exc
         # Failure was handled by on_error: continue -- recorded as a
         # failed-but-continued step by execute_protocol.
         return True
