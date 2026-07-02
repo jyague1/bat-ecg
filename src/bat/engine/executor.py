@@ -293,6 +293,10 @@ def _execute_step(
             logger=step_logger,
         )
         if not should_continue:
-            raise StepExecutionError(
-                f"step {step.id!r} failed: {exc}"
-            ) from exc
+            error = StepExecutionError(f"step {step.id!r} failed: {exc}")
+            # Attached so callers orchestrating a full run (CARD-016's
+            # bat.engine.runner) can report exactly which step/workflow
+            # failed without having to parse the message string.
+            error.step_id = step.id
+            error.workflow_id = workflow_name
+            raise error from exc
