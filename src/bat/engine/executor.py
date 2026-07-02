@@ -36,8 +36,10 @@ See ``cards/backlog/CARD-010-dag-execution-engine.md`` and
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 from typing import Any
 
+from bat.artifacts import storage
 from bat.artifacts.registry import ArtifactRegistry
 from bat.engine.checks import check_step_outputs
 from bat.engine.errors import StepExecutionError, handle_step_error
@@ -241,10 +243,11 @@ def _remap_outputs_to_step_names(
     output fields, the returned dict is remapped positionally -- the i-th
     schema output field name maps to the i-th step-declared output name,
     relying on both being ordered mappings (plain dicts and YAML-loaded
-    mappings preserve declaration order). Each remapped artifact also has
-    its ``.name`` updated to the step-declared name, since ``Artifact.name``
-    is meant to reflect the actual protocol-level artifact name, not the
-    module's internal schema field name.
+    mappings preserve declaration order). This only remaps the dict's
+    *keys*; :func:`_finalize_artifact` is responsible for updating each
+    artifact's own ``.name``/``.path``/creator fields and writing
+    ``meta.yaml``, and runs for every declared output regardless of
+    whether a remap happened here.
 
     If the returned dict's keys already match ``step.outputs``' keys
     exactly (true of every pre-CARD-019 module/test fixture), this is a
@@ -273,13 +276,73 @@ def _remap_outputs_to_step_names(
             # bail out and let the caller's own missing-outputs check
             # produce a clear error instead of silently misremapping.
             return outputs
-        artifact = outputs[schema_name]
-        if dataclasses.is_dataclass(artifact) and not isinstance(artifact, type):
-            artifact = dataclasses.replace(artifact, name=step_name)
-        elif hasattr(artifact, "name"):
-            artifact.name = step_name
-        remapped[step_name] = artifact
+        remapped[step_name] = outputs[schema_name]
     return remapped
+
+
+def _relocate_artifact(
+    artifact: Any,
+    output_name: str,
+    step: Step,
+    workflow_name: str,
+    run_ctx: RunContext,
+) -> Any:
+    """Normalize a module-returned artifact before registration.
+
+    A module only knows its own schema's output field name and creator
+    module -- it cannot know the step's declared artifact name, workflow
+    id, or step id. This stamps those authoritatively from what the
+    executor already knows, and reconciles the artifact's on-disk
+    location with BAT's ``artifacts/<artifact-name>/`` storage convention
+    (``bat.artifacts.storage`` always derives an artifact's directory from
+    its *name*, so if a module wrote its data under a different directory
+    -- e.g. its own schema output key, as ``core.wfdb.read``/``write`` do
+    -- that directory is moved to ``artifacts/<output_name>/`` here).
+
+    Deliberately does NOT write ``meta.yaml`` -- that only happens once
+    :func:`~bat.engine.checks.check_step_outputs` has confirmed the
+    artifact's data genuinely exists on disk (see
+    :func:`_write_output_meta`), so a module bug that never actually
+    writes any data still gets caught rather than being masked by
+    ``meta.yaml`` itself counting as "a file exists".
+    """
+    target_dir = run_ctx.artifacts_dir / output_name
+    current_path = Path(artifact.path)
+
+    if current_path != target_dir and current_path.is_dir():
+        try:
+            current_path.relative_to(run_ctx.artifacts_dir)
+        except ValueError:
+            new_path = current_path  # outside the run dir -- leave as-is
+        else:
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
+            current_path.rename(target_dir)
+            new_path = target_dir
+    else:
+        new_path = current_path
+
+    return dataclasses.replace(
+        artifact,
+        name=output_name,
+        path=new_path,
+        creator_step=step.id,
+        creator_workflow=workflow_name,
+        creator_module=step.module,
+    )
+
+
+def _write_output_meta(step: Step, registry: ArtifactRegistry, run_ctx: RunContext) -> None:
+    """Write ``meta.yaml`` for each of ``step``'s declared, now-validated outputs.
+
+    Called only after :func:`~bat.engine.checks.check_step_outputs` has
+    passed, so this never runs for an artifact whose data doesn't
+    actually exist on disk (see :func:`_relocate_artifact`). Matches
+    CARD-008's "meta.yaml is written alongside every artifact"
+    requirement for successful step outputs -- error artifacts already
+    get this from :mod:`bat.engine.errors`.
+    """
+    for output_name in step.outputs:
+        storage.write_meta(run_ctx.run_dir, registry.get(output_name))
 
 
 def _execute_step(
@@ -342,9 +405,13 @@ def _execute_step(
             )
 
         for output_name in step.outputs:
-            registry.register(outputs[output_name])
+            artifact = _relocate_artifact(
+                outputs[output_name], output_name, step, workflow_name, run_ctx
+            )
+            registry.register(artifact)
 
         check_step_outputs(step, registry, run_ctx)
+        _write_output_meta(step, registry, run_ctx)
 
         step_logger.info("step %r completed", step.id)
     except Exception as exc:

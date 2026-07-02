@@ -114,7 +114,8 @@ runs/2026-07-02_151139/
   logs/
     run.log                    # plain text execution log
   artifacts/
-    signal/                    # the raw_signal artifact's on-disk WFDB files
+    raw_signal/                # named after the artifact, e.g. "raw_signal"
+      meta.yaml                # artifact metadata (type, format, creator, ...)
       signal.hea
       signal.dat
 ```
@@ -263,7 +264,8 @@ runs/2026-07-02_151139/
   logs/
     run.log                 # plain text execution log
   artifacts/                # all step outputs, one subdirectory per artifact
-    signal/
+    raw_signal/              # runs/<run-id>/artifacts/<artifact-name>/
+      meta.yaml               # written alongside every artifact
       signal.hea
       signal.dat
 ```
