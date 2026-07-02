@@ -17,19 +17,21 @@ BAT is built around a few core design values:
 
 ## Installation
 
+BAT is not yet published on PyPI. Install it directly from GitHub:
+
 ```bash
-pip install batecg
+pip install git+https://github.com/jyague1/bat-ecg.git
 ```
 
 For development:
 
 ```bash
-git clone <repo>
-cd batecg
+git clone https://github.com/jyague1/bat-ecg.git
+cd bat-ecg
 pip install -e ".[dev]"
 ```
 
-The package is named `batecg` on PyPI; installing it provides the `bat` command-line tool.
+Installing the package provides the `bat` command-line tool.
 
 ## Quickstart
 
