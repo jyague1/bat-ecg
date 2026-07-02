@@ -339,3 +339,79 @@ def test_dry_run_protocol_missing_module_raises_before_run_dir_created(tmp_path)
         dry_run_protocol(protocol_path, run_name=None, vars_file=None, cli_vars={})
 
     assert not (tmp_path / "runs").exists()
+
+
+# --------------------------------------------------------------------------
+# Dependency cycles (improvement: cycle detection pre-flight)
+# --------------------------------------------------------------------------
+
+CYCLIC_STEP_PROTOCOL = """\
+version: "0.1"
+workflows:
+  main:
+    steps:
+      - id: a
+        name: A
+        module: stub.load
+        depends_on: [b]
+      - id: b
+        name: B
+        module: stub.load
+        depends_on: [a]
+"""
+
+CYCLIC_WORKFLOW_PROTOCOL = """\
+version: "0.1"
+workflows:
+  first:
+    depends_on: [second]
+    steps:
+      - id: s1
+        name: S1
+        module: stub.load
+  second:
+    depends_on: [first]
+    steps:
+      - id: s2
+        name: S2
+        module: stub.load
+"""
+
+
+def test_run_protocol_step_cycle_raises_before_run_dir_created(tmp_path):
+    from bat.engine.executor import CycleError
+
+    protocol_path = tmp_path / "protocol.yaml"
+    protocol_path.write_text(CYCLIC_STEP_PROTOCOL)
+    write_plugins(tmp_path)
+
+    with pytest.raises(CycleError):
+        run_protocol(protocol_path, run_name=None, vars_file=None, cli_vars={})
+
+    assert not (tmp_path / "runs").exists()
+
+
+def test_run_protocol_workflow_cycle_raises_before_run_dir_created(tmp_path):
+    from bat.engine.executor import CycleError
+
+    protocol_path = tmp_path / "protocol.yaml"
+    protocol_path.write_text(CYCLIC_WORKFLOW_PROTOCOL)
+    write_plugins(tmp_path)
+
+    with pytest.raises(CycleError):
+        run_protocol(protocol_path, run_name=None, vars_file=None, cli_vars={})
+
+    assert not (tmp_path / "runs").exists()
+
+
+def test_dry_run_protocol_cycle_raises_before_run_dir_created(tmp_path):
+    from bat.engine.executor import CycleError
+
+    protocol_path = tmp_path / "protocol.yaml"
+    protocol_path.write_text(CYCLIC_STEP_PROTOCOL)
+    write_plugins(tmp_path)
+
+    with pytest.raises(CycleError):
+        dry_run_protocol(protocol_path, run_name=None, vars_file=None, cli_vars={})
+
+    assert not (tmp_path / "runs").exists()

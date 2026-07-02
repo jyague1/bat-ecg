@@ -49,6 +49,7 @@ from bat.plugins.interface import BATContext
 
 __all__ = [
     "topological_sort",
+    "check_acyclic",
     "execute_protocol",
     "CycleError",
     "ExecutorError",
@@ -161,6 +162,30 @@ def _find_cycle(remaining: list[str], depends_on: dict[str, list[str]]) -> list[
     # Should be unreachable given every node in `remaining` failed to
     # resolve, but fall back to just naming the unresolved set.
     return remaining
+
+
+def check_acyclic(protocol: Protocol) -> None:
+    """Raise :class:`CycleError` if any ``depends_on`` graph has a cycle.
+
+    Checks both the workflow-level graph and each workflow's step-level
+    graph, reusing :func:`topological_sort` purely for its cycle-detection
+    side effect. Callers with a validated :class:`Protocol` (e.g. the
+    runner's pre-flight, before the run directory is created) use this so a
+    cyclic protocol fails cleanly rather than blowing up mid-execution.
+    Assumes every ``depends_on`` target is a known node -- true for a
+    schema-validated ``Protocol``; the raw-dict validator in
+    :mod:`bat.engine.validation` does its own tolerant cycle check.
+    """
+    workflow_names = list(protocol.workflows.keys())
+    workflow_depends_on = {
+        name: workflow.depends_on for name, workflow in protocol.workflows.items()
+    }
+    topological_sort(workflow_names, workflow_depends_on)
+
+    for workflow in protocol.workflows.values():
+        step_ids = [step.id for step in workflow.steps]
+        step_depends_on = {step.id: step.depends_on for step in workflow.steps}
+        topological_sort(step_ids, step_depends_on)
 
 
 # --------------------------------------------------------------------------
