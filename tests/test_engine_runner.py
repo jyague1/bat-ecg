@@ -415,3 +415,32 @@ def test_dry_run_protocol_cycle_raises_before_run_dir_created(tmp_path):
         dry_run_protocol(protocol_path, run_name=None, vars_file=None, cli_vars={})
 
     assert not (tmp_path / "runs").exists()
+
+
+# --------------------------------------------------------------------------
+# Provenance from real execution records (improvement)
+# --------------------------------------------------------------------------
+
+
+def test_provenance_records_real_per_step_timestamps(tmp_path):
+    protocol_path = tmp_path / "protocol.yaml"
+    protocol_path.write_text(PROTOCOL)
+    write_plugins(tmp_path)
+
+    result = run_protocol(protocol_path, run_name="prov1", vars_file=None, cli_vars={})
+    assert result.status == "success"
+
+    data = yaml.safe_load((result.run_ctx.run_dir / "provenance.yaml").read_text())
+    steps = data["workflows"]["preprocess"]["steps"]
+
+    # Every executed step has real (non-null) start/finish timestamps in
+    # the UTC "...Z" format, rather than all sharing the workflow's stamps.
+    for step_id in ("load_record", "filter_signal"):
+        rec = steps[step_id]
+        assert rec["status"] == "success"
+        assert rec["started_at"] and rec["started_at"].endswith("Z")
+        assert rec["finished_at"] and rec["finished_at"].endswith("Z")
+        assert rec["finished_at"] >= rec["started_at"]
+
+    # filter_signal depends on load_record, so it started no earlier.
+    assert steps["filter_signal"]["started_at"] >= steps["load_record"]["started_at"]

@@ -36,6 +36,8 @@ See ``cards/backlog/CARD-010-dag-execution-engine.md`` and
 from __future__ import annotations
 
 import dataclasses
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -54,11 +56,71 @@ __all__ = [
     "CycleError",
     "ExecutorError",
     "StepExecutionError",
+    "StepOutcome",
+    "WorkflowOutcome",
+    "RunRecords",
 ]
 
 
 class CycleError(Exception):
     """Raised by :func:`topological_sort` when the graph contains a cycle."""
+
+
+# --------------------------------------------------------------------------
+# Execution records (real per-step/per-workflow status + timing)
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class StepOutcome:
+    """What actually happened to one step during a run.
+
+    ``status`` is ``"success"`` (ran, all declared outputs registered),
+    ``"failed"`` (its ``module.run()`` or output check raised -- whether or
+    not ``on_error: continue`` then handled it), or ``"skipped"`` (never
+    reached because its workflow stopped or the run stopped earlier).
+    """
+
+    workflow_id: str
+    step_id: str
+    status: str = "skipped"
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+@dataclass
+class WorkflowOutcome:
+    """What actually happened to one workflow during a run.
+
+    ``status`` is ``"success"`` (all steps succeeded), ``"partial"`` (all
+    steps ran but at least one failed and was handled via
+    ``on_error: continue``), ``"failed"`` (a step failed unhandled, stopping
+    the workflow), or ``"skipped"`` (the run stopped before this workflow
+    ran).
+    """
+
+    workflow_id: str
+    status: str = "skipped"
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    steps: list[StepOutcome] = field(default_factory=list)
+
+
+@dataclass
+class RunRecords:
+    """Collector populated by :func:`execute_protocol` as it runs.
+
+    Pass an instance in to capture real per-step/per-workflow status and
+    wall-clock timings; the runner turns these into provenance records
+    directly, with no after-the-fact reconstruction. Optional -- callers
+    that don't need provenance (e.g. most executor tests) omit it.
+    """
+
+    workflows: list[WorkflowOutcome] = field(default_factory=list)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class ExecutorError(Exception):
@@ -198,6 +260,7 @@ def execute_protocol(
     registry: ArtifactRegistry,
     plugin_registry: dict,
     run_ctx: RunContext,
+    records: "RunRecords | None" = None,
 ) -> None:
     """Execute every workflow and step in ``protocol``, in topological order.
 
@@ -213,27 +276,78 @@ def execute_protocol(
     remaining steps do not run) but execution moves on to the next
     workflow; otherwise the error propagates out of this function entirely,
     stopping the whole run. See the module docstring for details.
+
+    If a :class:`RunRecords` is passed as ``records``, it is populated with
+    real per-step/per-workflow status and wall-clock timings as execution
+    proceeds (the runner uses this to build provenance directly). Passing
+    ``None`` is fully supported and changes nothing about execution.
     """
+    if records is None:
+        records = RunRecords()
+
+    # Resolve the full topological plan up front. This both drives execution
+    # and lets us seed one outcome record per workflow/step (all "skipped"
+    # until proven otherwise), so a run that stops early still leaves an
+    # accurate record for the steps that never ran -- no reconstruction.
     workflow_names = list(protocol.workflows.keys())
     workflow_depends_on = {
         name: workflow.depends_on for name, workflow in protocol.workflows.items()
     }
     workflow_order = topological_sort(workflow_names, workflow_depends_on)
 
+    plan: list[tuple[str, Any, list[Step]]] = []
     for workflow_name in workflow_order:
         workflow = protocol.workflows[workflow_name]
         steps_by_id = {step.id: step for step in workflow.steps}
         step_depends_on = {step.id: step.depends_on for step in workflow.steps}
         step_order = topological_sort(list(steps_by_id.keys()), step_depends_on)
+        ordered_steps = [steps_by_id[step_id] for step_id in step_order]
+        plan.append((workflow_name, workflow, ordered_steps))
+
+    for workflow_name, workflow, ordered_steps in plan:
+        wf_outcome = WorkflowOutcome(
+            workflow_id=workflow_name,
+            steps=[
+                StepOutcome(workflow_id=workflow_name, step_id=step.id)
+                for step in ordered_steps
+            ],
+        )
+        records.workflows.append(wf_outcome)
+    outcome_by_workflow = {wo.workflow_id: wo for wo in records.workflows}
+
+    for workflow_name, workflow, ordered_steps in plan:
+        wf_outcome = outcome_by_workflow[workflow_name]
+        step_outcome_by_id = {so.step_id: so for so in wf_outcome.steps}
+        wf_outcome.started_at = _now()
 
         workflow_logger = run_ctx.logger.getChild(f"workflow.{workflow_name}")
         workflow_logger.info("starting workflow %r", workflow_name)
 
+        had_handled_failure = False
         try:
-            for step_id in step_order:
-                step = steps_by_id[step_id]
-                _execute_step(step, workflow_name, registry, plugin_registry, run_ctx)
-        except StepExecutionError:
+            for step in ordered_steps:
+                step_outcome = step_outcome_by_id[step.id]
+                step_outcome.started_at = _now()
+                handled_failure = _execute_step(
+                    step, workflow_name, registry, plugin_registry, run_ctx
+                )
+                step_outcome.finished_at = _now()
+                if handled_failure:
+                    step_outcome.status = "failed"
+                    had_handled_failure = True
+                else:
+                    step_outcome.status = "success"
+            wf_outcome.status = "partial" if had_handled_failure else "success"
+            wf_outcome.finished_at = _now()
+        except StepExecutionError as exc:
+            failed_id = getattr(exc, "step_id", None)
+            failed_outcome = step_outcome_by_id.get(failed_id)
+            if failed_outcome is not None:
+                failed_outcome.finished_at = _now()
+                failed_outcome.status = "failed"
+            wf_outcome.status = "failed"
+            wf_outcome.finished_at = _now()
+
             on_error = workflow.on_error
             if on_error is not None and on_error.action == "continue":
                 workflow_logger.error(
@@ -376,7 +490,7 @@ def _execute_step(
     registry: ArtifactRegistry,
     plugin_registry: dict,
     run_ctx: RunContext,
-) -> None:
+) -> bool:
     """Run a single step: resolve inputs, invoke its module, register outputs.
 
     After a step's declared outputs are registered,
@@ -397,6 +511,12 @@ def _execute_step(
     :class:`StepExecutionError` chained from the original exception,
     stopping the run (subject to workflow-level ``on_error`` handling in
     :func:`execute_protocol`).
+
+    Returns:
+        ``True`` if the step failed but was handled by ``on_error:
+        continue`` (so it is recorded as a failed-but-continued step),
+        ``False`` if it succeeded. Raises rather than returning when a
+        failure is unhandled.
     """
     step_logger = run_ctx.logger.getChild(f"step.{step.id}")
     try:
@@ -439,6 +559,7 @@ def _execute_step(
         _write_output_meta(step, registry, run_ctx)
 
         step_logger.info("step %r completed", step.id)
+        return False
     except Exception as exc:
         should_continue = handle_step_error(
             exc,
@@ -457,3 +578,6 @@ def _execute_step(
             error.step_id = step.id
             error.workflow_id = workflow_name
             raise error from exc
+        # Failure was handled by on_error: continue -- recorded as a
+        # failed-but-continued step by execute_protocol.
+        return True
