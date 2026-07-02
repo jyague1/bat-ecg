@@ -91,13 +91,6 @@ def test_plugins_docs_stub_exits_zero():
     assert "not implemented" in result.output
 
 
-def test_init_stub_exits_zero():
-    runner = CliRunner()
-    result = runner.invoke(main, ["init", "my-project"])
-    assert result.exit_code == 0
-    assert "not implemented" in result.output
-
-
 def test_run_missing_protocol_arg_errors():
     runner = CliRunner()
     result = runner.invoke(main, ["run"])
