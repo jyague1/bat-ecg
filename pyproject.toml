@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "batecg"
+version = "0.1.0"
+description = "BAT (Biomedical Analysis Toolbox): a command-line biomedical signal processing toolbox driven by declarative YAML protocols."
+requires-python = ">=3.10"
+dependencies = [
+    "click",
+    "pydantic>=2.0",
+    "pyyaml",
+    "wfdb",
+    "onnx",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+[project.scripts]
+bat = "bat.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bat"]
