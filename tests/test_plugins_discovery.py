@@ -41,12 +41,72 @@ def write(base: Path, relpath: str, contents: str) -> Path:
     return path
 
 
+# A module with ``run`` but no ``schema`` at all -- used only for tests that
+# exercise modules *without* a callable ``run`` (so schema-conformance never
+# comes into play), since CARD-007 requires every module that does expose
+# ``run`` to also expose a valid ``schema``.
 RUN_ONLY = "def run(inputs, params, context=None):\n    return {}\n"
+
+# A fully conforming plugin module: callable ``run`` plus a ``schema``
+# attribute that is a valid ``bat.plugins.schema.ModuleSchema`` subclass
+# with citations set to the literal ``"none"`` (these fixtures don't wrap
+# any real published algorithm).
 RUN_AND_SCHEMA = (
+    "from pydantic import BaseModel\n"
+    "from bat.plugins.schema import ModuleSchema\n"
+    "\n"
+    "\n"
+    "class Schema(ModuleSchema):\n"
+    "    class Meta:\n"
+    "        name = 'test.module'\n"
+    "        description = 'A test plugin module.'\n"
+    "        citations = 'none'\n"
+    "\n"
+    "    class Params(BaseModel):\n"
+    "        pass\n"
+    "\n"
+    "    class Inputs(BaseModel):\n"
+    "        pass\n"
+    "\n"
+    "    class Outputs(BaseModel):\n"
+    "        pass\n"
+    "\n"
+    "\n"
+    "schema = Schema\n"
+    "\n"
+    "\n"
     "def run(inputs, params, context=None):\n"
     "    return {'rpeaks': []}\n"
+)
+
+# A module with ``run`` but a ``schema`` that is missing citations entirely
+# (not even the literal ``\"none\"``) -- CARD-007 requires this to be a
+# discovery error.
+RUN_AND_SCHEMA_MISSING_CITATIONS = (
+    "from pydantic import BaseModel\n"
+    "from bat.plugins.schema import ModuleSchema\n"
     "\n"
-    "schema = {}\n"
+    "\n"
+    "class Schema(ModuleSchema):\n"
+    "    class Meta:\n"
+    "        name = 'test.module'\n"
+    "        description = 'A test plugin module with no citations set.'\n"
+    "\n"
+    "    class Params(BaseModel):\n"
+    "        pass\n"
+    "\n"
+    "    class Inputs(BaseModel):\n"
+    "        pass\n"
+    "\n"
+    "    class Outputs(BaseModel):\n"
+    "        pass\n"
+    "\n"
+    "\n"
+    "schema = Schema\n"
+    "\n"
+    "\n"
+    "def run(inputs, params, context=None):\n"
+    "    return {}\n"
 )
 
 
@@ -115,11 +175,14 @@ def test_local_nested_package_module_discovered(tmp_path, no_installed_plugins):
     module = registry["lab.ecg.detect_rpeaks"]
     assert callable(module.run)
     assert hasattr(module, "schema")
+    from bat.plugins.schema import ModuleSchema
+
+    assert issubclass(module.schema, ModuleSchema)
 
 
 def test_local_single_file_collection_discovered(tmp_path, no_installed_plugins):
     plugins_dir = tmp_path / "plugins"
-    write(plugins_dir, "custom_lab.py", RUN_ONLY)
+    write(plugins_dir, "custom_lab.py", RUN_AND_SCHEMA)
 
     registry = discover_plugins(plugins_dir)
 
@@ -147,6 +210,50 @@ def test_local_directory_without_init_py_is_skipped(tmp_path, no_installed_plugi
     registry = discover_plugins(plugins_dir)
 
     assert registry == {}
+
+
+# --- Plugin interface / schema conformance (CARD-007) -----------------------
+
+
+def test_local_module_with_run_but_no_schema_raises(tmp_path, no_installed_plugins):
+    plugins_dir = tmp_path / "plugins"
+    write(plugins_dir, "lab/__init__.py", "")
+    write(plugins_dir, "lab/detect_rpeaks.py", RUN_ONLY)
+
+    with pytest.raises(PluginDiscoveryError) as exc_info:
+        discover_plugins(plugins_dir)
+
+    message = str(exc_info.value)
+    assert "lab.detect_rpeaks" in message
+    assert "schema" in message
+
+
+def test_local_module_with_missing_citations_raises(tmp_path, no_installed_plugins):
+    plugins_dir = tmp_path / "plugins"
+    write(plugins_dir, "lab/__init__.py", "")
+    write(
+        plugins_dir,
+        "lab/detect_rpeaks.py",
+        RUN_AND_SCHEMA_MISSING_CITATIONS,
+    )
+
+    with pytest.raises(PluginDiscoveryError) as exc_info:
+        discover_plugins(plugins_dir)
+
+    message = str(exc_info.value)
+    assert "lab.detect_rpeaks" in message
+    assert "citations" in message
+
+
+def test_local_module_with_citations_none_passes(tmp_path, no_installed_plugins):
+    plugins_dir = tmp_path / "plugins"
+    write(plugins_dir, "lab/__init__.py", "")
+    write(plugins_dir, "lab/detect_rpeaks.py", RUN_AND_SCHEMA)
+
+    registry = discover_plugins(plugins_dir)
+
+    assert "lab.detect_rpeaks" in registry
+    assert registry["lab.detect_rpeaks"].schema.Meta.citations == "none"
 
 
 # --- Missing plugins/ directory --------------------------------------------
@@ -215,13 +322,13 @@ def test_both_sources_merged_into_one_registry(tmp_path, monkeypatch):
         files={
             "neurokit_plugin/__init__.py": "",
             "neurokit_plugin/ecg/__init__.py": "",
-            "neurokit_plugin/ecg/clean.py": RUN_ONLY,
+            "neurokit_plugin/ecg/clean.py": RUN_AND_SCHEMA,
         },
     )
 
     plugins_dir = tmp_path / "plugins"
     write(plugins_dir, "custom_lab/__init__.py", "")
-    write(plugins_dir, "custom_lab/rpeak_detector.py", RUN_ONLY)
+    write(plugins_dir, "custom_lab/rpeak_detector.py", RUN_AND_SCHEMA)
 
     registry = discover_plugins(plugins_dir)
 
@@ -242,14 +349,14 @@ def test_duplicate_module_name_across_sources_raises(tmp_path, monkeypatch):
         files={
             "lab_ecg_plugin/__init__.py": "",
             "lab_ecg_plugin/ecg/__init__.py": "",
-            "lab_ecg_plugin/ecg/detect_rpeaks.py": RUN_ONLY,
+            "lab_ecg_plugin/ecg/detect_rpeaks.py": RUN_AND_SCHEMA,
         },
     )
 
     plugins_dir = tmp_path / "plugins"
     write(plugins_dir, "lab/__init__.py", "")
     write(plugins_dir, "lab/ecg/__init__.py", "")
-    write(plugins_dir, "lab/ecg/detect_rpeaks.py", RUN_ONLY)
+    write(plugins_dir, "lab/ecg/detect_rpeaks.py", RUN_AND_SCHEMA)
 
     with pytest.raises(PluginDiscoveryError) as exc_info:
         discover_plugins(plugins_dir)
@@ -268,12 +375,12 @@ def test_duplicate_module_name_within_entry_point_source_raises(tmp_path, monkey
     pkg_a_root = tmp_path / "site-packages-a"
     write(pkg_a_root, "lab_pkg_a/__init__.py", "")
     write(pkg_a_root, "lab_pkg_a/ecg/__init__.py", "")
-    write(pkg_a_root, "lab_pkg_a/ecg/detect_rpeaks.py", RUN_ONLY)
+    write(pkg_a_root, "lab_pkg_a/ecg/detect_rpeaks.py", RUN_AND_SCHEMA)
 
     pkg_b_root = tmp_path / "site-packages-b"
     write(pkg_b_root, "lab_pkg_b/__init__.py", "")
     write(pkg_b_root, "lab_pkg_b/ecg/__init__.py", "")
-    write(pkg_b_root, "lab_pkg_b/ecg/detect_rpeaks.py", RUN_ONLY)
+    write(pkg_b_root, "lab_pkg_b/ecg/detect_rpeaks.py", RUN_AND_SCHEMA)
 
     monkeypatch.syspath_prepend(str(pkg_a_root))
     monkeypatch.syspath_prepend(str(pkg_b_root))
