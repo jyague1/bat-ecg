@@ -1,11 +1,12 @@
 """YAML loader for BAT protocol files.
 
-Reads a protocol YAML file from disk and parses it into a validated
-:class:`bat.engine.schema.Protocol` object. All schema and cross-reference
-validation (unique step ids, unique artifact names, valid ``depends_on``
-references, resolvable artifact inputs) happens inside the Pydantic models
-in :mod:`bat.engine.schema`; this module is only responsible for I/O and
-surfacing readable errors.
+Reads a protocol YAML file from disk, statically inlines any ``imports`` it
+declares (see :mod:`bat.engine.imports`), and parses the result into a
+validated :class:`bat.engine.schema.Protocol` object. All schema and
+cross-reference validation (unique step ids, unique artifact names, valid
+``depends_on`` references, resolvable artifact inputs) happens inside the
+Pydantic models in :mod:`bat.engine.schema`; this module is only
+responsible for I/O, import resolution, and surfacing readable errors.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from bat.engine.imports import ImportResolutionError, resolve_imports
 from bat.engine.schema import Protocol
 
 
@@ -60,6 +62,13 @@ def load_protocol(path: str | Path) -> Protocol:
             f"Protocol file {path} must contain a YAML mapping at the top "
             f"level, got {type(data).__name__}"
         )
+
+    try:
+        data = resolve_imports(data, base_path=path.parent)
+    except ImportResolutionError as exc:
+        raise ProtocolError(
+            f"Could not resolve imports for protocol file {path}: {exc}"
+        ) from exc
 
     try:
         return Protocol.model_validate(data)
