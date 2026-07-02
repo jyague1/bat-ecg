@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from bat.engine.executor import check_acyclic
 from bat.engine.imports import ImportResolutionError, resolve_imports
 from bat.engine.schema import Protocol
 from bat.engine.variables import (
@@ -56,6 +57,11 @@ def load_protocol(
             read), or fails schema/validation rules. The error message
             includes the offending field path (for validation failures) and
             a human-readable description.
+        CycleError: If any workflow-level or step-level ``depends_on`` graph
+            contains a cycle. Detected here (not in the Pydantic schema,
+            which only checks that ``depends_on`` targets exist) so every
+            caller of ``load_protocol`` -- the runner, and ``bat validate``'s
+            counterpart -- rejects cyclic protocols consistently.
     """
     path = Path(path)
 
@@ -102,7 +108,7 @@ def load_protocol(
         ) from exc
 
     try:
-        return Protocol.model_validate(data)
+        protocol = Protocol.model_validate(data)
     except ValidationError as exc:
         messages = []
         for error in exc.errors():
@@ -112,3 +118,10 @@ def load_protocol(
         raise ProtocolError(
             f"Protocol file {path} failed validation:\n{details}"
         ) from exc
+
+    # Cycle detection is not expressible as a Pydantic field/model validator
+    # (it needs the whole workflow/step graph), so it runs here, after schema
+    # validation has confirmed every depends_on target exists. Raises
+    # CycleError, which the CLI already treats as a pre-flight error.
+    check_acyclic(protocol)
+    return protocol

@@ -16,6 +16,11 @@ variable-substituted) protocol dict directly, so that:
 Static imports are still resolved (see :mod:`bat.engine.imports`) before
 the structural checks run, since ``bat validate`` documents that imported
 files are read and inlined before validation.
+
+The structural rules here intentionally mirror the Pydantic validators in
+:mod:`bat.engine.schema` plus the cycle check in
+:func:`bat.engine.loader.load_protocol`. ``tests/test_validation_parity.py``
+guards the two from drifting on the rules they share.
 """
 
 from __future__ import annotations
