@@ -71,6 +71,20 @@ def out_decl(artifact_type: str = "metadata", fmt: str = "yaml") -> ArtifactDecl
     return ArtifactDeclaration(type=artifact_type, format=fmt)
 
 
+def _write_placeholder(path) -> None:
+    """Create ``path`` as a directory containing a placeholder data file.
+
+    Mirrors ``bat.artifacts.storage``'s convention of an artifact's ``path``
+    pointing at a directory (``artifacts/<name>/``) holding its data
+    file(s). Real plugin modules write their actual payload there; these
+    fake test modules only need *some* file to exist so the CARD-013
+    output-restriction check (which verifies declared outputs were
+    actually written inside the run's artifacts directory) passes.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "data.bin").write_text("x")
+
+
 class RecordingModule:
     """A fake plugin module recording every call it received."""
 
@@ -84,16 +98,19 @@ class RecordingModule:
         if self._run_fn is not None:
             return self._run_fn(inputs, params, context)
         run_dir = context.run_dir if context is not None else None
-        return {
-            name: Artifact(
+        outputs = {}
+        for name in self._output_names:
+            path = artifact_dir(run_dir, name) if run_dir else name
+            if run_dir:
+                _write_placeholder(path)
+            outputs[name] = Artifact(
                 name=name,
                 artifact_type="metadata",
                 format="yaml",
-                path=artifact_dir(run_dir, name) if run_dir else name,
+                path=path,
                 creator_module="test.module",
             )
-            for name in self._output_names
-        }
+        return outputs
 
 
 def failing_module():
@@ -167,12 +184,14 @@ def test_execute_protocol_linear_chain_executes_in_order(protocol_path):
     def make_recorder(step_id, output_name):
         def run(inputs, params, context=None):
             execution_log.append(step_id)
+            path = artifact_dir(run_ctx.run_dir, output_name)
+            _write_placeholder(path)
             return {
                 output_name: Artifact(
                     name=output_name,
                     artifact_type="metadata",
                     format="yaml",
-                    path=artifact_dir(run_ctx.run_dir, output_name),
+                    path=path,
                     creator_module="test.module",
                     creator_step=step_id,
                 )
@@ -223,12 +242,14 @@ def test_execute_protocol_branching_dag_uses_yaml_order_tiebreaker(protocol_path
     def make_recorder(step_id, output_name):
         def run(inputs, params, context=None):
             execution_log.append(step_id)
+            path = artifact_dir(run_ctx.run_dir, output_name)
+            _write_placeholder(path)
             return {
                 output_name: Artifact(
                     name=output_name,
                     artifact_type="metadata",
                     format="yaml",
-                    path=artifact_dir(run_ctx.run_dir, output_name),
+                    path=path,
                     creator_module="test.module",
                     creator_step=step_id,
                 )
@@ -284,12 +305,14 @@ def test_execute_protocol_workflow_level_ordering(protocol_path):
     def make_recorder(step_id, output_name):
         def run(inputs, params, context=None):
             execution_log.append(step_id)
+            path = artifact_dir(run_ctx.run_dir, output_name)
+            _write_placeholder(path)
             return {
                 output_name: Artifact(
                     name=output_name,
                     artifact_type="metadata",
                     format="yaml",
-                    path=artifact_dir(run_ctx.run_dir, output_name),
+                    path=path,
                     creator_module="test.module",
                     creator_step=step_id,
                 )
