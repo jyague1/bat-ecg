@@ -9,32 +9,41 @@ is ready to run. :func:`execute_protocol` walks those orders, resolving
 each step's inputs from the :class:`~bat.artifacts.registry.ArtifactRegistry`,
 invoking the step's plugin module, and registering its declared outputs.
 
-Full step-level error-handling semantics (retry policies, richer error
-artifacts, workflow-level ``on_error``, ...) are the subject of CARD-011
-and live in ``bat.engine.errors``, which does not exist yet. This module
-only implements the minimal inline behavior CARD-010 itself requires: a
-step with no ``on_error`` (or ``on_error.action == "stop"``) re-raises and
-stops the run; a step with ``on_error.action == "continue"`` catches the
-exception, writes a small error artifact for each declared
-``on_error.output`` name, and lets the topological walk continue.
+Step-level error-handling semantics (deciding whether a failure stops the
+run or continues, and producing error artifacts) live in
+:mod:`bat.engine.errors`. This module is responsible for:
 
-See ``cards/backlog/CARD-010-dag-execution-engine.md`` for the full spec.
+- Calling :func:`~bat.engine.errors.handle_step_error` when a step's
+  ``module.run()`` raises, and raising
+  :class:`~bat.engine.errors.StepExecutionError` when that call reports
+  the run should stop.
+- Workflow-level ``on_error``: if a :class:`~bat.engine.errors.StepExecutionError`
+  propagates out of a workflow whose own ``on_error.action == "continue"``,
+  that workflow stops but the run moves on to the next workflow in
+  topological order. Otherwise the error propagates out of
+  :func:`execute_protocol` and stops the whole run.
+
+See ``cards/backlog/CARD-010-dag-execution-engine.md`` and
+``cards/backlog/CARD-011-error-handling.md`` for the full specs.
 """
 
 from __future__ import annotations
 
-import traceback
-from datetime import datetime, timezone
 from typing import Any
 
-from bat.artifacts import storage
-from bat.artifacts.model import Artifact
 from bat.artifacts.registry import ArtifactRegistry
+from bat.engine.errors import StepExecutionError, handle_step_error
 from bat.engine.run import RunContext
 from bat.engine.schema import Protocol, Step
 from bat.plugins.interface import BATContext
 
-__all__ = ["topological_sort", "execute_protocol", "CycleError", "ExecutorError"]
+__all__ = [
+    "topological_sort",
+    "execute_protocol",
+    "CycleError",
+    "ExecutorError",
+    "StepExecutionError",
+]
 
 
 class CycleError(Exception):
@@ -160,9 +169,15 @@ def execute_protocol(
     Workflows are sorted by their ``depends_on``, then the steps within
     each workflow are sorted by their own ``depends_on``. Each step's
     inputs are resolved from ``registry`` before its module is invoked; its
-    declared outputs are validated and registered afterward. See the
-    module docstring for the (minimal, CARD-010-scoped) ``on_error``
-    handling.
+    declared outputs are validated and registered afterward.
+
+    If a step fails and :func:`~bat.engine.errors.handle_step_error`
+    reports the run should stop, :class:`StepExecutionError` propagates up
+    to this loop. If the containing workflow has
+    ``on_error.action == "continue"``, that workflow is abandoned (its
+    remaining steps do not run) but execution moves on to the next
+    workflow; otherwise the error propagates out of this function entirely,
+    stopping the whole run. See the module docstring for details.
     """
     workflow_names = list(protocol.workflows.keys())
     workflow_depends_on = {
@@ -179,9 +194,21 @@ def execute_protocol(
         workflow_logger = run_ctx.logger.getChild(f"workflow.{workflow_name}")
         workflow_logger.info("starting workflow %r", workflow_name)
 
-        for step_id in step_order:
-            step = steps_by_id[step_id]
-            _execute_step(step, workflow_name, registry, plugin_registry, run_ctx)
+        try:
+            for step_id in step_order:
+                step = steps_by_id[step_id]
+                _execute_step(step, workflow_name, registry, plugin_registry, run_ctx)
+        except StepExecutionError:
+            on_error = workflow.on_error
+            if on_error is not None and on_error.action == "continue":
+                workflow_logger.error(
+                    "workflow %r stopping due to unhandled step failure "
+                    "(workflow on_error=continue); run continues with the "
+                    "next workflow",
+                    workflow_name,
+                )
+                continue
+            raise
 
 
 def _execute_step(
@@ -193,9 +220,13 @@ def _execute_step(
 ) -> None:
     """Run a single step: resolve inputs, invoke its module, register outputs.
 
-    On exception: re-raises unless ``step.on_error.action == "continue"``,
-    in which case the error is handled by :func:`_handle_step_error` and
-    execution moves on to the next step.
+    On exception: delegates to :func:`~bat.engine.errors.handle_step_error`.
+    If it returns ``True`` (``on_error: continue`` handled the failure and
+    produced any declared error artifacts), execution returns normally so
+    the caller moves on to the next step. If it returns ``False``, raises
+    :class:`StepExecutionError` chained from the original exception,
+    stopping the run (subject to workflow-level ``on_error`` handling in
+    :func:`execute_protocol`).
     """
     step_logger = run_ctx.logger.getChild(f"step.{step.id}")
     try:
@@ -232,47 +263,16 @@ def _execute_step(
 
         step_logger.info("step %r completed", step.id)
     except Exception as exc:
-        on_error = step.on_error
-        if on_error is None or on_error.action == "stop":
-            raise
-        step_logger.error("step %r failed, continuing (on_error=continue): %s", step.id, exc)
-        _handle_step_error(step, workflow_name, exc, registry, run_ctx)
-
-
-def _handle_step_error(
-    step: Step,
-    workflow_name: str,
-    exc: Exception,
-    registry: ArtifactRegistry,
-    run_ctx: RunContext,
-) -> None:
-    """Minimal, CARD-010-scoped error handling for ``on_error: continue``.
-
-    Writes one small YAML error artifact per name declared in
-    ``step.on_error.output`` and registers it in ``registry``. This is
-    deliberately minimal -- CARD-011 will replace/refactor this with a
-    dedicated ``bat.engine.errors.handle_step_error()``.
-    """
-    assert step.on_error is not None  # guarded by the caller
-
-    payload = {
-        "step_id": step.id,
-        "message": str(exc),
-        "traceback": traceback.format_exc(),
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-
-    for output_name, declaration in step.on_error.output.items():
-        storage.write_data_yaml(run_ctx.run_dir, output_name, payload)
-        artifact = Artifact(
-            name=output_name,
-            artifact_type=declaration.type,
-            format=declaration.format,
-            path=storage.artifact_dir(run_ctx.run_dir, output_name),
-            creator_module=step.module,
-            creator_step=step.id,
-            creator_workflow=workflow_name,
-            params=step.params,
+        should_continue = handle_step_error(
+            exc,
+            step,
+            workflow_id=workflow_name,
+            on_error=step.on_error,
+            registry=registry,
+            artifacts_dir=run_ctx.artifacts_dir,
+            logger=step_logger,
         )
-        storage.write_meta(run_ctx.run_dir, artifact)
-        registry.register(artifact)
+        if not should_continue:
+            raise StepExecutionError(
+                f"step {step.id!r} failed: {exc}"
+            ) from exc
