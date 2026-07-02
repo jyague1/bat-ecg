@@ -42,7 +42,7 @@ class ArtifactDeclaration(BaseModel):
 
 
 class OnError(BaseModel):
-    """Error-handling behavior for a step (or, in future cards, a workflow)."""
+    """Error-handling behavior for a step or a workflow."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -72,6 +72,7 @@ class Workflow(BaseModel):
 
     depends_on: list[str] = Field(default_factory=list)
     steps: list[Step] = Field(min_length=1)
+    on_error: OnError | None = None
 
 
 class Protocol(BaseModel):

@@ -18,6 +18,7 @@ import pytest
 from bat.artifacts.model import Artifact
 from bat.artifacts.registry import ArtifactRegistry
 from bat.artifacts.storage import artifact_dir
+from bat.engine.errors import StepExecutionError
 from bat.engine.executor import CycleError, ExecutorError, execute_protocol, topological_sort
 from bat.engine.run import create_run
 from bat.engine.schema import (
@@ -426,8 +427,11 @@ def test_missing_module_in_plugin_registry_raises_clear_error(protocol_path):
     step = make_step("orphan", module="does.not.exist", outputs={"out": out_decl()})
     protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=[step])})
 
-    with pytest.raises(ExecutorError):
+    # No on_error is declared, so handle_step_error reports "stop" and the
+    # executor wraps the underlying ExecutorError in StepExecutionError.
+    with pytest.raises(StepExecutionError) as exc_info:
         execute_protocol(protocol, registry, {}, run_ctx)
+    assert isinstance(exc_info.value.__cause__, ExecutorError)
 
 
 # --------------------------------------------------------------------------
@@ -447,8 +451,9 @@ def test_step_missing_declared_output_raises_validation_error(protocol_path):
     protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=[step])})
     plugin_registry = {"test.no_outputs": module}
 
-    with pytest.raises(ExecutorError):
+    with pytest.raises(StepExecutionError) as exc_info:
         execute_protocol(protocol, registry, plugin_registry, run_ctx)
+    assert isinstance(exc_info.value.__cause__, ExecutorError)
 
     assert not registry.exists("expected_artifact")
 
@@ -475,8 +480,9 @@ def test_step_with_no_on_error_reraises_and_stops_run(protocol_path):
         ),
     }
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(StepExecutionError) as exc_info:
         execute_protocol(protocol, registry, plugin_registry, run_ctx)
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
 
     assert ran_second == []
 
@@ -510,7 +516,7 @@ def test_step_with_on_error_continue_produces_error_artifact_and_continues(proto
     assert error_artifact.artifact_type == "error"
     assert error_artifact.creator_step == "failing"
 
-    data_path = artifact_dir(run_ctx.run_dir, "failing_error") / "data.yaml"
+    data_path = artifact_dir(run_ctx.run_dir, "failing_error") / "error.yaml"
     assert data_path.is_file()
     meta_path = artifact_dir(run_ctx.run_dir, "failing_error") / "meta.yaml"
     assert meta_path.is_file()
