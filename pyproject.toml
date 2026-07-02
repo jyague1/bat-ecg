@@ -24,5 +24,8 @@ dev = [
 [project.scripts]
 bat = "bat.cli:main"
 
+[project.entry-points."bat.plugins"]
+core = "bat.core"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/bat"]

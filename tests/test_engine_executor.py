@@ -15,11 +15,19 @@ from typing import Any
 
 import pytest
 
+from pydantic import BaseModel
+
 from bat.artifacts.model import Artifact
 from bat.artifacts.registry import ArtifactRegistry
 from bat.artifacts.storage import artifact_dir
 from bat.engine.errors import StepExecutionError
-from bat.engine.executor import CycleError, ExecutorError, execute_protocol, topological_sort
+from bat.engine.executor import (
+    CycleError,
+    ExecutorError,
+    _remap_outputs_to_step_names,
+    execute_protocol,
+    topological_sort,
+)
 from bat.engine.run import create_run
 from bat.engine.schema import (
     ArtifactDeclaration,
@@ -29,6 +37,7 @@ from bat.engine.schema import (
     Step,
     Workflow,
 )
+from bat.plugins.schema import ModuleSchema, OutputField
 
 # --------------------------------------------------------------------------
 # Fixtures / helpers
@@ -479,6 +488,76 @@ def test_step_missing_declared_output_raises_validation_error(protocol_path):
     assert isinstance(exc_info.value.__cause__, ExecutorError)
 
     assert not registry.exists("expected_artifact")
+
+
+# --------------------------------------------------------------------------
+# _remap_outputs_to_step_names (CARD-019)
+# --------------------------------------------------------------------------
+
+
+class _FixedOutputSchema(ModuleSchema):
+    """A minimal schema whose Outputs always has a single field, "signal"
+    -- mirrors core.wfdb.read: the module can only return {"signal": ...},
+    regardless of what name a step gives that output."""
+
+    class Meta:
+        name = "test.fixed_output"
+        description = "test module"
+        citations = "none"
+
+    class Outputs(BaseModel):
+        signal: OutputField(artifact_type="signal", artifact_format="wfdb")
+
+
+def _fixed_output_module():
+    return SimpleNamespace(schema=_FixedOutputSchema)
+
+
+def test_remap_is_noop_when_returned_keys_already_match_step_outputs():
+    step = make_step("s", outputs={"signal": out_decl()})
+    outputs = {"signal": Artifact(name="signal", artifact_type="signal", format="wfdb", path="p")}
+
+    result = _remap_outputs_to_step_names(step, _fixed_output_module(), outputs)
+
+    assert result is outputs
+
+
+def test_remap_renames_single_output_positionally_when_keys_differ():
+    step = make_step("s", outputs={"raw_signal": out_decl(artifact_type="signal", fmt="wfdb")})
+    artifact = Artifact(name="signal", artifact_type="signal", format="wfdb", path="p")
+    outputs = {"signal": artifact}
+
+    result = _remap_outputs_to_step_names(step, _fixed_output_module(), outputs)
+
+    assert set(result.keys()) == {"raw_signal"}
+    assert result["raw_signal"].name == "raw_signal"
+    # Original artifact object/dict must be untouched (a new dataclass
+    # instance is produced via dataclasses.replace).
+    assert artifact.name == "signal"
+
+
+def test_remap_skipped_when_module_has_no_schema():
+    step = make_step("s", outputs={"raw_signal": out_decl()})
+    outputs = {"signal": Artifact(name="signal", artifact_type="metadata", format="yaml", path="p")}
+    module = SimpleNamespace()  # no `schema` attribute at all
+
+    result = _remap_outputs_to_step_names(step, module, outputs)
+
+    assert result is outputs
+
+
+def test_remap_skipped_when_output_counts_differ():
+    # Schema declares 1 output field, but the step declares 2 -- sizes
+    # don't line up, so remapping can't be done safely; left as-is (the
+    # caller's own missing-outputs check will raise a clear error).
+    step = make_step(
+        "s", outputs={"raw_signal": out_decl(), "extra": out_decl()}
+    )
+    outputs = {"signal": Artifact(name="signal", artifact_type="signal", format="wfdb", path="p")}
+
+    result = _remap_outputs_to_step_names(step, _fixed_output_module(), outputs)
+
+    assert result is outputs
 
 
 # --------------------------------------------------------------------------
