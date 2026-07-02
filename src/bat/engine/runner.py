@@ -15,37 +15,17 @@ validate every ``step.module`` reference against the plugin registry,
 create the run directory, write ``resolved_protocol.yaml``) via the private
 :func:`_load_and_validate` / :func:`_workflow_step_order` helpers.
 
-Provenance-building design note
---------------------------------
-:func:`~bat.engine.executor.execute_protocol` (CARD-010/011/013) does not
-return or accept anywhere to record per-step/per-workflow timing -- it just
-runs the protocol and either returns normally or raises
-:class:`~bat.engine.errors.StepExecutionError`. Rather than thread a new
-callback/records parameter through the executor (which would touch code
-several other cards' tests exercise directly, e.g.
-``tests/test_engine_executor.py`` and ``tests/test_engine_checks.py``),
-this module builds a **best-effort, coarse-grained**
-:class:`~bat.engine.provenance.RunProvenance` after the fact (option (b)
-from the card):
-
-- All steps within a workflow share that workflow's ``started_at`` /
-  ``finished_at`` timestamps (no true per-step wall-clock precision).
-- A step's status is inferred from the final :class:`ArtifactRegistry`
-  state plus (when the run stopped on an unhandled failure) the identity
-  of the failing step: a step is ``"success"`` if all of its declared
-  outputs are registered, ``"failed"`` if it is the step that raised (or
-  if one of its ``on_error.output`` error artifacts was registered), and
-  ``"skipped"`` otherwise (i.e. topologically after the point execution
-  stopped).
-- A workflow is ``"failed"`` if it contains the failing step, ``"partial"``
-  if some of its steps failed-but-were-handled via ``on_error: continue``,
-  ``"skipped"`` if it was never reached, and ``"success"`` otherwise.
-
-The one surgical change made to :mod:`bat.engine.executor` to support this
-is that the :class:`~bat.engine.errors.StepExecutionError` raised on an
-unhandled step failure now carries ``.step_id`` / ``.workflow_id``
-attributes -- a purely additive change that does not affect
-``execute_protocol``'s signature or any existing caller/test.
+Provenance
+----------
+``run_protocol`` passes a :class:`~bat.engine.executor.RunRecords` into
+:func:`~bat.engine.executor.execute_protocol`, which populates it with the
+real per-step/per-workflow status and wall-clock timings as it runs.
+:func:`_build_provenance` then joins those recorded outcomes with each
+step's static protocol data (module, inputs, outputs, params) and plugin
+version -- a direct adapter, with no reconstruction of status from the
+final registry state and no faked per-step timing. ``records`` is an
+optional parameter on ``execute_protocol``; callers that don't need
+provenance (most executor tests) simply omit it.
 """
 
 from __future__ import annotations
@@ -56,7 +36,7 @@ from pathlib import Path
 
 from bat.artifacts.registry import ArtifactRegistry
 from bat.engine.errors import StepExecutionError
-from bat.engine.executor import execute_protocol, topological_sort
+from bat.engine.executor import RunRecords, execute_protocol, topological_sort
 from bat.engine.loader import load_protocol
 from bat.engine.provenance import (
     ArtifactRecord,
@@ -268,37 +248,35 @@ def run_protocol(
     write_resolved_protocol(run_ctx, protocol.model_dump(mode="json"))
 
     registry = ArtifactRegistry()
+    records = RunRecords()
     started_at = datetime.now(timezone.utc)
 
     failed_step_id: str | None = None
     failed_workflow_id: str | None = None
     run_error: str | None = None
+    run_stopped = False
 
     try:
-        execute_protocol(protocol, registry, plugin_registry, run_ctx)
+        execute_protocol(protocol, registry, plugin_registry, run_ctx, records=records)
     except StepExecutionError as exc:
         failed_step_id = getattr(exc, "step_id", None)
         failed_workflow_id = getattr(exc, "workflow_id", None)
         run_error = str(exc)
+        run_stopped = True
 
     finished_at = datetime.now(timezone.utc)
 
     provenance = _build_provenance(
         protocol=protocol,
+        records=records,
         registry=registry,
         plugin_registry=plugin_registry,
         run_ctx=run_ctx,
         protocol_path=protocol_path,
         started_at=started_at,
         finished_at=finished_at,
-        failed_step_id=failed_step_id,
-        failed_workflow_id=failed_workflow_id,
+        run_stopped=run_stopped,
     )
-    # provenance.status is derived from the per-workflow reconstruction in
-    # _build_provenance, which already accounts for both an outright
-    # unhandled failure (failed_step_id is not None -> "failed") and a
-    # handled-but-imperfect run (some workflow's steps failed via
-    # on_error: continue -> "partial").
     status = provenance.status
 
     write_provenance(run_ctx, provenance)
@@ -322,7 +300,7 @@ def run_protocol(
 
 
 # --------------------------------------------------------------------------
-# Provenance construction (best-effort, see module docstring)
+# Provenance construction (from the executor's real execution records)
 # --------------------------------------------------------------------------
 
 
@@ -333,96 +311,66 @@ def _module_version_lookup(environment: dict) -> dict[str, str | None]:
 
 def _build_provenance(
     protocol: Protocol,
+    records: RunRecords,
     registry: ArtifactRegistry,
     plugin_registry: dict,
     run_ctx: RunContext,
     protocol_path: Path,
     started_at: datetime,
     finished_at: datetime,
-    failed_step_id: str | None,
-    failed_workflow_id: str | None,
+    run_stopped: bool,
 ) -> RunProvenance:
-    """Build a best-effort :class:`RunProvenance` from the final registry
-    state and (if the run failed) the identity of the failing step.
+    """Build a :class:`RunProvenance` directly from ``records``.
 
-    See the module docstring for the precision trade-offs this makes.
+    ``records`` was populated by :func:`~bat.engine.executor.execute_protocol`
+    as it ran, so per-step/per-workflow status and timings are the real
+    thing -- no reconstruction from the final registry state, and no faked
+    per-step wall-clock. This adapter just joins each recorded outcome with
+    the step's static protocol data (module, inputs, outputs, params) and
+    the plugin version.
     """
     environment = build_environment_record(plugin_registry)
     module_versions = _module_version_lookup(environment)
 
     workflow_records: list[WorkflowRecord] = []
-    run_stopped = False  # once True, all later workflows never ran.
-
-    for workflow_id, steps in _workflow_step_order(protocol):
-        workflow = protocol.workflows[workflow_id]
-
-        if run_stopped:
-            workflow_records.append(
-                _skipped_workflow_record(workflow_id, steps, started_at)
-            )
-            continue
+    for wf_outcome in records.workflows:
+        workflow = protocol.workflows[wf_outcome.workflow_id]
+        steps_by_id = {step.id: step for step in workflow.steps}
 
         step_records: list[StepRecord] = []
-        workflow_stopped = False
-        workflow_had_handled_failure = False
-        workflow_had_unhandled_failure = False
-
-        for step in steps:
-            if workflow_stopped:
-                step_records.append(_step_record(step, "skipped", started_at, module_versions))
-                continue
-
-            if failed_step_id is not None and step.id == failed_step_id:
-                step_records.append(_step_record(step, "failed", finished_at, module_versions))
-                workflow_stopped = True
-                workflow_had_unhandled_failure = True
-                continue
-
-            declared = list(step.outputs.keys())
-            all_present = all(registry.exists(name) for name in declared)
-
-            if declared and all_present:
-                step_records.append(_step_record(step, "success", finished_at, module_versions))
-                continue
-
-            error_names = list(step.on_error.output.keys()) if step.on_error else []
-            if error_names and any(registry.exists(name) for name in error_names):
-                step_records.append(_step_record(step, "failed", finished_at, module_versions))
-                workflow_had_handled_failure = True
-                continue
-
-            if not declared:
-                # No declared outputs and it isn't the step that failed --
-                # best-effort assumption is that it ran successfully.
-                step_records.append(_step_record(step, "success", finished_at, module_versions))
-                continue
-
-            # Declared outputs, none/some present, no failure signal found:
-            # never reached.
-            step_records.append(_step_record(step, "skipped", started_at, module_versions))
-            workflow_stopped = True
-
-        if workflow_id == failed_workflow_id or workflow_had_unhandled_failure:
-            workflow_status = "failed"
-            wf_on_error = workflow.on_error
-            if wf_on_error is None or wf_on_error.action != "continue":
-                run_stopped = True
-        elif workflow_had_handled_failure:
-            workflow_status = "partial"
-        else:
-            workflow_status = "success"
+        for step_outcome in wf_outcome.steps:
+            step = steps_by_id[step_outcome.step_id]
+            namespace = step.module.split(".", 1)[0]
+            # A step only "has" its declared outputs in provenance if it
+            # actually completed successfully and produced them.
+            outputs = (
+                list(step.outputs.keys())
+                if step_outcome.status == "success"
+                else []
+            )
+            step_records.append(
+                StepRecord(
+                    step_id=step_outcome.step_id,
+                    status=step_outcome.status,
+                    module=step.module,
+                    module_version=module_versions.get(namespace),
+                    started_at=step_outcome.started_at or started_at,
+                    finished_at=step_outcome.finished_at,
+                    inputs=[ref.artifact for ref in step.inputs.values()],
+                    outputs=outputs,
+                    params=dict(step.params),
+                )
+            )
 
         workflow_records.append(
             WorkflowRecord(
-                workflow_id=workflow_id,
-                status=workflow_status,
-                started_at=started_at,
-                finished_at=finished_at,
+                workflow_id=wf_outcome.workflow_id,
+                status=wf_outcome.status,
+                started_at=wf_outcome.started_at or started_at,
+                finished_at=wf_outcome.finished_at,
                 steps=step_records,
             )
         )
-
-    overall_status = _overall_status(workflow_records, failed_step_id)
 
     artifact_records: list[ArtifactRecord] = [
         build_artifact_record(artifact, registry) for artifact in registry.all()
@@ -433,67 +381,24 @@ def _build_provenance(
         protocol_path=protocol_path,
         started_at=started_at,
         finished_at=finished_at,
-        status=overall_status,
+        status=_overall_status(records, run_stopped),
         environment=environment,
         workflow_records=workflow_records,
         artifact_records=artifact_records,
     )
 
 
-def _overall_status(workflow_records: list[WorkflowRecord], failed_step_id: str | None) -> str:
-    if failed_step_id is not None:
+def _overall_status(records: RunRecords, run_stopped: bool) -> str:
+    """Derive the run's overall status from the recorded workflow outcomes.
+
+    ``"failed"`` if the run stopped on an unhandled failure; otherwise
+    ``"partial"`` if any workflow failed-but-was-continued (workflow-level
+    ``on_error: continue``) or completed with a handled step failure; else
+    ``"success"``.
+    """
+    if run_stopped:
         return "failed"
-    statuses = {wf.status for wf in workflow_records}
-    if statuses <= {"success"}:
-        return "success"
-    if "failed" in statuses:
-        # A workflow failed but the run continued past it (workflow-level
-        # on_error: continue) -- the run as a whole didn't stop, so this
-        # reads as a partial completion rather than an outright failure.
-        return "partial"
-    if "partial" in statuses:
+    statuses = {wf.status for wf in records.workflows}
+    if statuses & {"failed", "partial"}:
         return "partial"
     return "success"
-
-
-def _step_record(
-    step: Step, status: str, when: datetime, module_versions: dict[str, str | None]
-) -> StepRecord:
-    namespace = step.module.split(".", 1)[0]
-    outputs = [name for name in step.outputs if status != "skipped"]
-    return StepRecord(
-        step_id=step.id,
-        status=status,
-        module=step.module,
-        module_version=module_versions.get(namespace),
-        started_at=when,
-        finished_at=when,
-        inputs=[ref.artifact for ref in step.inputs.values()],
-        outputs=outputs,
-        params=dict(step.params),
-    )
-
-
-def _skipped_workflow_record(
-    workflow_id: str, steps: list[Step], when: datetime
-) -> WorkflowRecord:
-    return WorkflowRecord(
-        workflow_id=workflow_id,
-        status="skipped",
-        started_at=when,
-        finished_at=when,
-        steps=[
-            StepRecord(
-                step_id=step.id,
-                status="skipped",
-                module=step.module,
-                module_version=None,
-                started_at=when,
-                finished_at=when,
-                inputs=[ref.artifact for ref in step.inputs.values()],
-                outputs=[],
-                params=dict(step.params),
-            )
-            for step in steps
-        ],
-    )

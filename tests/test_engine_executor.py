@@ -624,3 +624,115 @@ def test_step_with_on_error_continue_produces_error_artifact_and_continues(proto
     assert data_path.is_file()
     meta_path = artifact_dir(run_ctx.run_dir, "failing_error") / "meta.yaml"
     assert meta_path.is_file()
+
+
+# --------------------------------------------------------------------------
+# Execution records (improvement: real per-step status + timings)
+# --------------------------------------------------------------------------
+
+
+def test_records_capture_real_status_and_timings_on_success(protocol_path):
+    run_ctx = make_run_ctx(protocol_path)
+    registry = ArtifactRegistry()
+
+    load = RecordingModule(output_names=["raw_signal"])
+    filt = RecordingModule(output_names=["filtered_signal"])
+    plugin_registry = {"test.load": load, "test.filter": filt}
+
+    steps = [
+        make_step("load", module="test.load", outputs={"raw_signal": out_decl()}),
+        make_step(
+            "filter",
+            module="test.filter",
+            depends_on=["load"],
+            inputs={"signal": ArtifactRef(artifact="raw_signal")},
+            outputs={"filtered_signal": out_decl()},
+        ),
+    ]
+    protocol = Protocol(version="0.1", workflows={"wf": Workflow(steps=steps)})
+
+    from bat.engine.executor import RunRecords
+
+    records = RunRecords()
+    execute_protocol(protocol, registry, plugin_registry, run_ctx, records=records)
+
+    assert len(records.workflows) == 1
+    wf = records.workflows[0]
+    assert wf.workflow_id == "wf"
+    assert wf.status == "success"
+    assert wf.started_at is not None and wf.finished_at is not None
+    assert wf.finished_at >= wf.started_at
+
+    assert [s.step_id for s in wf.steps] == ["load", "filter"]
+    for step_outcome in wf.steps:
+        assert step_outcome.status == "success"
+        assert step_outcome.started_at is not None
+        assert step_outcome.finished_at is not None
+        assert step_outcome.finished_at >= step_outcome.started_at
+
+    # Real per-step timing: the second step starts no earlier than the
+    # first step finished (they ran sequentially, not sharing one stamp).
+    assert wf.steps[1].started_at >= wf.steps[0].started_at
+
+
+def test_records_mark_downstream_steps_skipped_after_unhandled_failure(protocol_path):
+    run_ctx = make_run_ctx(protocol_path)
+    registry = ArtifactRegistry()
+
+    steps = [
+        make_step("boom", module="test.boom", outputs={"out": out_decl()}),
+        make_step("after", module="test.after", depends_on=["boom"]),
+    ]
+    protocol = Protocol(version="0.1", workflows={"wf": Workflow(steps=steps)})
+    plugin_registry = {
+        "test.boom": failing_module(),
+        "test.after": RecordingModule(output_names=[]),
+    }
+
+    from bat.engine.executor import RunRecords
+
+    records = RunRecords()
+    with pytest.raises(StepExecutionError):
+        execute_protocol(protocol, registry, plugin_registry, run_ctx, records=records)
+
+    wf = records.workflows[0]
+    assert wf.status == "failed"
+    by_id = {s.step_id: s for s in wf.steps}
+    assert by_id["boom"].status == "failed"
+    assert by_id["boom"].started_at is not None
+    assert by_id["after"].status == "skipped"
+    assert by_id["after"].started_at is None  # never ran
+
+
+def test_records_mark_handled_failure_as_failed_step_partial_workflow(protocol_path):
+    run_ctx = make_run_ctx(protocol_path)
+    registry = ArtifactRegistry()
+
+    steps = [
+        make_step(
+            "boom",
+            module="test.boom",
+            outputs={"out": out_decl()},
+            on_error=OnError(
+                action="continue",
+                output={"boom_error": out_decl(artifact_type="error")},
+            ),
+        ),
+        make_step("after", module="test.after", depends_on=["boom"]),
+    ]
+    protocol = Protocol(version="0.1", workflows={"wf": Workflow(steps=steps)})
+    plugin_registry = {
+        "test.boom": failing_module(),
+        "test.after": RecordingModule(output_names=[]),
+    }
+
+    from bat.engine.executor import RunRecords
+
+    records = RunRecords()
+    execute_protocol(protocol, registry, plugin_registry, run_ctx, records=records)
+
+    wf = records.workflows[0]
+    assert wf.status == "partial"
+    by_id = {s.step_id: s for s in wf.steps}
+    assert by_id["boom"].status == "failed"      # it failed...
+    assert by_id["after"].status == "success"    # ...but downstream still ran
