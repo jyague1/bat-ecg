@@ -16,10 +16,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-#: Valid values for ``ArtifactDeclaration.type``.
-ARTIFACT_TYPES = frozenset(
-    {"signal", "annotations", "features", "metadata", "model", "report", "error"}
-)
+# Artifact-type vocabulary lives in one place (bat.artifacts.types).
+from bat.artifacts.types import ArtifactType
 
 
 class ArtifactRef(BaseModel):
@@ -35,9 +33,7 @@ class ArtifactDeclaration(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal[
-        "signal", "annotations", "features", "metadata", "model", "report", "error"
-    ]
+    type: ArtifactType
     format: str
 
 

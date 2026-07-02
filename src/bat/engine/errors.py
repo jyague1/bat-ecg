@@ -29,6 +29,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+from bat._util import format_utc
 from bat.artifacts import storage
 from bat.artifacts.model import Artifact
 from bat.artifacts.registry import ArtifactRegistry
@@ -79,7 +80,7 @@ def _build_error_payload(
         "error_type": type(exc).__name__,
         "message": str(exc),
         "traceback": _format_traceback(exc),
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timestamp": format_utc(datetime.now(timezone.utc)),
     }
 
 

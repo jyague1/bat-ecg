@@ -41,24 +41,15 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
+from bat.artifacts.types import ARTIFACT_TYPES, DEFAULT_FORMATS
+
 # --- Artifact types / formats -------------------------------------------
 
-#: Valid values for ``artifact_type``.
-ARTIFACT_TYPES: frozenset[str] = frozenset(
-    {"signal", "annotations", "features", "metadata", "model", "report", "error"}
-)
-
-#: Default artifact format per artifact type, used when ``InputField``
-#: / ``OutputField`` is called without an explicit ``artifact_format``.
-DEFAULT_ARTIFACT_FORMATS: dict[str, str] = {
-    "signal": "wfdb",
-    "annotations": "wfdb",
-    "features": "parquet",
-    "metadata": "yaml",
-    "error": "yaml",
-    "model": "onnx",
-    "report": "html",
-}
+# Artifact-type vocabulary and default formats live in one place
+# (bat.artifacts.types). ``DEFAULT_ARTIFACT_FORMATS`` is kept as an alias
+# of the shared ``DEFAULT_FORMATS`` for the name this module has always
+# exported.
+DEFAULT_ARTIFACT_FORMATS = DEFAULT_FORMATS
 
 
 def _artifact_reference_annotation(artifact_type: str, artifact_format: str | None) -> Any:
