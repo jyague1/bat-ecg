@@ -42,18 +42,20 @@ def test_no_imports_passes_through_unchanged(tmp_path):
         },
     }
 
-    result = resolve_imports(raw, base_path=tmp_path)
+    result, imported_vars = resolve_imports(raw, base_path=tmp_path)
 
     assert result == raw
+    assert imported_vars == {}
 
 
 def test_no_imports_key_present_still_returns_equivalent_dict(tmp_path):
     raw = {"version": "0.1", "workflows": {}}
 
-    result = resolve_imports(raw, base_path=tmp_path)
+    result, imported_vars = resolve_imports(raw, base_path=tmp_path)
 
     assert result == raw
     assert "imports" not in result
+    assert imported_vars == {}
 
 
 def test_imported_vars_merged_with_correct_precedence(tmp_path):
@@ -84,11 +86,13 @@ vars:
         },
     }
 
-    result = resolve_imports(raw, base_path=tmp_path)
+    result, imported_vars = resolve_imports(raw, base_path=tmp_path)
 
     # protocol-level "record" wins; imported "default_fs" is present.
     assert result["vars"] == {"default_fs": 360, "record": "100"}
     assert "imports" not in result
+    # imported_vars reflects the *pre-override* imported values only.
+    assert imported_vars == {"default_fs": 360, "record": "should_be_overridden"}
 
 
 def test_imported_workflows_merged_into_protocol(tmp_path):
@@ -129,11 +133,12 @@ workflows:
         },
     }
 
-    result = resolve_imports(raw, base_path=tmp_path)
+    result, imported_vars = resolve_imports(raw, base_path=tmp_path)
 
     assert set(result["workflows"].keys()) == {"preprocess", "features"}
     assert result["workflows"]["preprocess"]["steps"][0]["id"] == "load_record"
     assert result["workflows"]["features"]["steps"][0]["id"] == "export_signal"
+    assert imported_vars == {}
 
 
 def test_relative_import_paths_resolve_from_declaring_file(tmp_path):
@@ -175,9 +180,10 @@ vars:
         },
     }
 
-    result = resolve_imports(raw, base_path=tmp_path)
+    result, imported_vars = resolve_imports(raw, base_path=tmp_path)
 
     assert result["vars"] == {"deep_var": "deep_value", "mid_var": "mid_value"}
+    assert imported_vars == {"deep_var": "deep_value", "mid_var": "mid_value"}
 
 
 def test_circular_imports_raise_error(tmp_path):

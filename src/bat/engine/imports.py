@@ -13,7 +13,10 @@ Merge rules:
 - Imported ``vars`` are merged into the enclosing file's ``vars`` at the
   *lowest* precedence -- the enclosing file's own ``vars`` win on conflict.
   This mirrors the CLI > vars-file > protocol vars > imported vars
-  precedence chain (CARD-005 implements the higher tiers).
+  precedence chain (CARD-005 implements the higher tiers). ``resolve_imports``
+  also returns the fully-resolved *imported-only* vars separately (i.e.
+  before the enclosing file's own vars were applied), so CARD-005's
+  ``build_var_context`` can slot them in at the correct precedence tier.
 - Imported ``workflows`` are merged into the enclosing file's ``workflows``
   dict; the enclosing file's own workflow definitions win on conflict.
 - Imports are resolved relative to the directory of the file that declares
@@ -41,7 +44,9 @@ class ImportResolutionError(Exception):
     """Raised when a protocol's ``imports`` cannot be statically resolved."""
 
 
-def resolve_imports(raw: dict[str, Any], base_path: Path) -> dict[str, Any]:
+def resolve_imports(
+    raw: dict[str, Any], base_path: Path
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Recursively inline ``imports`` declared in ``raw`` before validation.
 
     Args:
@@ -52,12 +57,18 @@ def resolve_imports(raw: dict[str, Any], base_path: Path) -> dict[str, Any]:
             directory.
 
     Returns:
-        A new dict with all imports resolved and inlined: imported ``vars``
-        merged at lowest precedence (``raw``'s own ``vars`` win), imported
-        ``workflows`` merged into ``raw``'s ``workflows`` dict, and the
-        ``imports`` key itself removed (it is not part of the protocol
-        schema). If ``raw`` has no ``imports`` key, an equivalent dict is
-        returned unchanged.
+        A ``(result, imported_vars)`` tuple:
+
+        - ``result``: a new dict with all imports resolved and inlined:
+          imported ``vars`` merged at lowest precedence (``raw``'s own
+          ``vars`` win), imported ``workflows`` merged into ``raw``'s
+          ``workflows`` dict, and the ``imports`` key itself removed (it is
+          not part of the protocol schema). If ``raw`` has no ``imports``
+          key, ``result`` is an equivalent dict returned unchanged.
+        - ``imported_vars``: the fully-resolved vars contributed by
+          ``raw``'s ``imports`` alone (recursively resolved, but *before*
+          ``raw``'s own ``vars`` were applied on top). Empty if ``raw`` has
+          no imports.
 
     Raises:
         ImportResolutionError: If an import entry is not a static string
@@ -70,7 +81,7 @@ def resolve_imports(raw: dict[str, Any], base_path: Path) -> dict[str, Any]:
 
 def _resolve(
     raw: dict[str, Any], base_path: Path, stack: tuple[Path, ...]
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     imports = raw.get("imports") or []
 
     if not isinstance(imports, list):
@@ -132,7 +143,7 @@ def _resolve(
 
         # Depth-first: resolve the imported file's own imports before
         # merging its content into the importer.
-        resolved_imported = _resolve(
+        resolved_imported, _ = _resolve(
             imported_raw, import_path.parent, stack=(*stack, import_path)
         )
 
@@ -155,4 +166,4 @@ def _resolve(
     if final_workflows:
         result["workflows"] = final_workflows
 
-    return result
+    return result, merged_vars
