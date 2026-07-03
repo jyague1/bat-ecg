@@ -18,7 +18,8 @@ Merge rules:
   before the enclosing file's own vars were applied), so CARD-005's
   ``build_var_context`` can slot them in at the correct precedence tier.
 - Imported ``workflows`` are merged into the enclosing file's ``workflows``
-  dict; the enclosing file's own workflow definitions win on conflict.
+  list by ``id``; the enclosing file's own workflow definitions win on
+  conflict.
 - Imports are resolved relative to the directory of the file that declares
   the ``imports`` key.
 - Imports are processed depth-first: an imported file may itself declare
@@ -62,9 +63,10 @@ def resolve_imports(
         - ``result``: a new dict with all imports resolved and inlined:
           imported ``vars`` merged at lowest precedence (``raw``'s own
           ``vars`` win), imported ``workflows`` merged into ``raw``'s
-          ``workflows`` dict, and the ``imports`` key itself removed (it is
-          not part of the protocol schema). If ``raw`` has no ``imports``
-          key, ``result`` is an equivalent dict returned unchanged.
+          ``workflows`` list by ``id``, and the ``imports`` key itself
+          removed (it is not part of the protocol schema). If ``raw`` has no
+          ``imports`` key, ``result`` is an equivalent dict returned
+          unchanged.
         - ``imported_vars``: the fully-resolved vars contributed by
           ``raw``'s ``imports`` alone (recursively resolved, but *before*
           ``raw``'s own ``vars`` were applied on top). Empty if ``raw`` has
@@ -91,7 +93,7 @@ def _resolve(
         )
 
     merged_vars: dict[str, Any] = {}
-    merged_workflows: dict[str, Any] = {}
+    merged_workflows: dict[str, Any] = {}  # keyed by workflow id, list at the boundary
 
     for entry in imports:
         if not isinstance(entry, str):
@@ -148,18 +150,34 @@ def _resolve(
         )
 
         merged_vars.update(resolved_imported.get("vars") or {})
-        merged_workflows.update(resolved_imported.get("workflows") or {})
+        for wf in resolved_imported.get("workflows") or []:
+            if isinstance(wf, dict) and isinstance(wf.get("id"), str):
+                merged_workflows[wf["id"]] = wf
 
     result = dict(raw)
     result.pop("imports", None)
 
     own_vars = raw.get("vars") or {}
-    own_workflows = raw.get("workflows") or {}
+    own_workflows = raw.get("workflows") or []
 
     # Imported values are lowest precedence: the enclosing file's own
     # vars/workflows win on key conflicts.
     final_vars = {**merged_vars, **own_vars}
-    final_workflows = {**merged_workflows, **own_workflows}
+
+    # Own workflows always win over an imported workflow with the same id,
+    # but are otherwise passed through verbatim (including malformed entries
+    # or same-file duplicate ids) -- those are structural problems for the
+    # schema/raw-dict validators to report, not something for import merging
+    # to silently resolve.
+    own_ids = {
+        wf["id"]
+        for wf in own_workflows
+        if isinstance(wf, dict) and isinstance(wf.get("id"), str)
+    }
+    kept_imported = [
+        wf for wf_id, wf in merged_workflows.items() if wf_id not in own_ids
+    ]
+    final_workflows = [*kept_imported, *own_workflows]
 
     if final_vars:
         result["vars"] = final_vars

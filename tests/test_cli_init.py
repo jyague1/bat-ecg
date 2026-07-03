@@ -76,7 +76,7 @@ def test_init_generated_protocol_is_valid_yaml():
 
         assert data["version"] == "0.1"
         assert data["vars"]["record"] == "100"
-        assert "load" in data["workflows"]
+        assert "load" in [w["id"] for w in data["workflows"]]
 
 
 def test_init_generated_protocol_loads_via_engine_loader():
@@ -89,7 +89,7 @@ def test_init_generated_protocol_loads_via_engine_loader():
         protocol = load_protocol(Path("my-project", "protocol.yaml"))
 
         assert protocol.version == "0.1"
-        workflow = protocol.workflows["load"]
+        workflow = next(w for w in protocol.workflows if w.id == "load")
         step = workflow.steps[0]
         assert step.id == "load_record"
         assert step.module == "core.wfdb.read"

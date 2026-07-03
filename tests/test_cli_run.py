@@ -98,7 +98,7 @@ version: "0.1"
 vars:
   record: "100"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load
@@ -125,7 +125,7 @@ workflows:
 FAILING_PROTOCOL = """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: explode_step
         name: Explode
@@ -135,7 +135,7 @@ workflows:
 MISSING_MODULE_PROTOCOL = """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: mystery
         name: Mystery
@@ -289,10 +289,9 @@ def test_var_overrides_protocol_vars():
         resolved = yaml.safe_load(
             Path("runs", "varrun", "resolved_protocol.yaml").read_text()
         )
+        preprocess = next(w for w in resolved["workflows"] if w["id"] == "preprocess")
         load_step = next(
-            s
-            for s in resolved["workflows"]["preprocess"]["steps"]
-            if s["id"] == "load_record"
+            s for s in preprocess["steps"] if s["id"] == "load_record"
         )
         assert load_step["params"]["record"] == "202"
 
@@ -321,10 +320,9 @@ def test_vars_file_loads_additional_vars():
         resolved = yaml.safe_load(
             Path("runs", "varsfilerun", "resolved_protocol.yaml").read_text()
         )
+        preprocess = next(w for w in resolved["workflows"] if w["id"] == "preprocess")
         load_step = next(
-            s
-            for s in resolved["workflows"]["preprocess"]["steps"]
-            if s["id"] == "load_record"
+            s for s in preprocess["steps"] if s["id"] == "load_record"
         )
         assert load_step["params"]["record"] == "303"
 

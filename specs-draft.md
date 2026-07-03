@@ -180,7 +180,7 @@ vars:
   record: "100"
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -192,7 +192,7 @@ workflows:
             type: signal
             format: wfdb
 
-  features:
+  - id: features
     depends_on:
       - preprocess
     steps:

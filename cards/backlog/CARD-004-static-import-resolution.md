@@ -30,7 +30,7 @@ vars:
   record: "100"
 
 workflows:
-  features:
+  - id: features
     steps:
       - id: export_signal
         name: Export signal
@@ -51,7 +51,7 @@ vars:
   default_fs: 360
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -67,7 +67,7 @@ workflows:
 ## Merge rules
 
 - Imported `vars` are merged into the protocol `vars` (lower precedence than protocol-level vars — see variable precedence: CLI > vars-file > protocol vars > imported vars)
-- Imported `workflows` are merged into the protocol `workflows` dict
+- Imported `workflows` are merged into the protocol `workflows` list by `id`
 - Imported `steps` (if a file only defines steps with no workflow wrapper) are not supported in v1 — steps must be inside a workflow
 - Import paths are resolved relative to the file that contains the `imports` key
 - Circular imports are an error

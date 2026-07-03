@@ -166,7 +166,7 @@ def test_end_to_end_step_declared_output_name_differs_from_schema_field(
         params={"path": wfdb_record_path},
         outputs={"raw_signal": ArtifactDeclaration(type="signal", format="wfdb")},
     )
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=[step])})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
 
     plugin_registry = discover_plugins(None)
     registry = ArtifactRegistry()

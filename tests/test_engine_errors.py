@@ -241,7 +241,7 @@ def test_step_failure_no_on_error_raises_step_execution_error_and_stops_run(prot
         make_step("failing", module="test.failing"),
         make_step("never_runs", module="test.never", depends_on=["failing"]),
     ]
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=steps)])
     ran_second = []
     plugin_registry = {
         "test.failing": failing_module(),
@@ -272,7 +272,7 @@ def test_step_failure_on_error_continue_produces_artifact_and_continues(protocol
         ),
         make_step("after", module="test.after"),
     ]
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=steps)])
     after_ran = []
     plugin_registry = {
         "test.failing": failing_module(),
@@ -307,7 +307,7 @@ def test_downstream_steps_of_failed_continued_step_still_execute(protocol_path):
             depends_on=["load_record"],
         ),
     ]
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=steps)])
     downstream_ran = []
     plugin_registry = {
         "test.load": failing_module(FileNotFoundError("no such file")),
@@ -338,8 +338,9 @@ def test_workflow_level_on_error_continue_stops_workflow_but_continues_run(proto
 
     protocol = Protocol(
         version="0.1",
-        workflows={
-            "preprocess": Workflow(
+        workflows=[
+            Workflow(
+                id="preprocess",
                 on_error=OnError(action="continue"),
                 steps=[
                     make_step("failing", module="test.failing"),
@@ -350,11 +351,12 @@ def test_workflow_level_on_error_continue_stops_workflow_but_continues_run(proto
                     ),
                 ],
             ),
-            "report": Workflow(
+            Workflow(
+                id="report",
                 depends_on=["preprocess"],
                 steps=[make_step("make_report", module="test.report")],
             ),
-        },
+        ],
     )
     ran = []
     plugin_registry = {
@@ -381,15 +383,17 @@ def test_workflow_level_default_stop_propagates_step_execution_error(protocol_pa
 
     protocol = Protocol(
         version="0.1",
-        workflows={
-            "preprocess": Workflow(
+        workflows=[
+            Workflow(
+                id="preprocess",
                 steps=[make_step("failing", module="test.failing")],
             ),
-            "report": Workflow(
+            Workflow(
+                id="report",
                 depends_on=["preprocess"],
                 steps=[make_step("make_report", module="test.report")],
             ),
-        },
+        ],
     )
     ran = []
     plugin_registry = {

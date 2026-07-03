@@ -66,6 +66,7 @@ class Workflow(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    id: str
     depends_on: list[str] = Field(default_factory=list)
     steps: list[Step] = Field(min_length=1)
     on_error: OnError | None = None
@@ -81,18 +82,30 @@ class Protocol(BaseModel):
     # A protocol must contain at least one workflow (matches
     # bat.engine.validation and the spec). Guarded by the parity test in
     # tests/test_validation_parity.py.
-    workflows: dict[str, Workflow] = Field(min_length=1)
+    workflows: list[Workflow] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_unique_workflow_ids(self) -> Protocol:
+        """Workflow IDs must be unique across the whole protocol."""
+        seen: set[str] = set()
+        for workflow in self.workflows:
+            if workflow.id in seen:
+                raise ValueError(
+                    f"workflows: duplicate workflow id {workflow.id!r}"
+                )
+            seen.add(workflow.id)
+        return self
 
     @model_validator(mode="after")
     def _validate_workflow_depends_on(self) -> Protocol:
         """Every workflow ``depends_on`` entry must name an existing workflow."""
-        workflow_names = set(self.workflows.keys())
-        for wf_name, workflow in self.workflows.items():
+        workflow_ids = {workflow.id for workflow in self.workflows}
+        for workflow in self.workflows:
             for dep in workflow.depends_on:
-                if dep not in workflow_names:
+                if dep not in workflow_ids:
                     raise ValueError(
-                        f"workflows.{wf_name}.depends_on: unknown workflow "
-                        f"reference {dep!r}"
+                        f"workflows.{workflow.id}.depends_on: unknown "
+                        f"workflow reference {dep!r}"
                     )
         return self
 
@@ -100,29 +113,29 @@ class Protocol(BaseModel):
     def _validate_unique_step_ids(self) -> Protocol:
         """Step IDs must be unique across the whole protocol."""
         seen: dict[str, str] = {}
-        for wf_name, workflow in self.workflows.items():
+        for workflow in self.workflows:
             for step in workflow.steps:
                 if step.id in seen:
                     raise ValueError(
-                        f"workflows.{wf_name}.steps: duplicate step id "
+                        f"workflows.{workflow.id}.steps: duplicate step id "
                         f"{step.id!r} (already declared in workflow "
                         f"{seen[step.id]!r})"
                     )
-                seen[step.id] = wf_name
+                seen[step.id] = workflow.id
         return self
 
     @model_validator(mode="after")
     def _validate_step_depends_on(self) -> Protocol:
         """Step ``depends_on`` entries must reference a step id within the same workflow."""
-        for wf_name, workflow in self.workflows.items():
+        for workflow in self.workflows:
             step_ids = {step.id for step in workflow.steps}
             for step in workflow.steps:
                 for dep in step.depends_on:
                     if dep not in step_ids:
                         raise ValueError(
-                            f"workflows.{wf_name}.steps.{step.id}.depends_on: "
-                            f"unknown step reference {dep!r} in workflow "
-                            f"{wf_name!r}"
+                            f"workflows.{workflow.id}.steps.{step.id}."
+                            f"depends_on: unknown step reference {dep!r} in "
+                            f"workflow {workflow.id!r}"
                         )
         return self
 
@@ -130,30 +143,30 @@ class Protocol(BaseModel):
     def _validate_unique_artifact_names(self) -> Protocol:
         """Artifact names declared in ``outputs`` must be unique across the protocol."""
         seen: dict[str, tuple[str, str]] = {}
-        for wf_name, workflow in self.workflows.items():
+        for workflow in self.workflows:
             for step in workflow.steps:
                 for artifact_name in step.outputs:
                     if artifact_name in seen:
                         prev_wf, prev_step = seen[artifact_name]
                         raise ValueError(
-                            f"workflows.{wf_name}.steps.{step.id}.outputs: "
-                            f"duplicate artifact name {artifact_name!r} "
-                            f"(already declared by step {prev_step!r} in "
-                            f"workflow {prev_wf!r})"
+                            f"workflows.{workflow.id}.steps.{step.id}."
+                            f"outputs: duplicate artifact name "
+                            f"{artifact_name!r} (already declared by step "
+                            f"{prev_step!r} in workflow {prev_wf!r})"
                         )
-                    seen[artifact_name] = (wf_name, step.id)
+                    seen[artifact_name] = (workflow.id, step.id)
                 if step.on_error is not None:
                     for artifact_name in step.on_error.output:
                         if artifact_name in seen:
                             prev_wf, prev_step = seen[artifact_name]
                             raise ValueError(
-                                f"workflows.{wf_name}.steps.{step.id}."
+                                f"workflows.{workflow.id}.steps.{step.id}."
                                 f"on_error.output: duplicate artifact name "
                                 f"{artifact_name!r} (already declared by "
                                 f"step {prev_step!r} in workflow "
                                 f"{prev_wf!r})"
                             )
-                        seen[artifact_name] = (wf_name, step.id)
+                        seen[artifact_name] = (workflow.id, step.id)
         return self
 
     @model_validator(mode="after")
@@ -167,20 +180,20 @@ class Protocol(BaseModel):
         protocol's declared outputs.
         """
         declared_artifacts: set[str] = set()
-        for workflow in self.workflows.values():
+        for workflow in self.workflows:
             for step in workflow.steps:
                 declared_artifacts.update(step.outputs.keys())
                 if step.on_error is not None:
                     declared_artifacts.update(step.on_error.output.keys())
 
-        for wf_name, workflow in self.workflows.items():
+        for workflow in self.workflows:
             for step in workflow.steps:
                 for input_name, artifact_ref in step.inputs.items():
                     if artifact_ref.artifact not in declared_artifacts:
                         raise ValueError(
-                            f"workflows.{wf_name}.steps.{step.id}.inputs."
-                            f"{input_name}: unknown artifact reference "
-                            f"{artifact_ref.artifact!r} (no step declares "
-                            "this artifact as an output)"
+                            f"workflows.{workflow.id}.steps.{step.id}."
+                            f"inputs.{input_name}: unknown artifact "
+                            f"reference {artifact_ref.artifact!r} (no step "
+                            "declares this artifact as an output)"
                         )
         return self

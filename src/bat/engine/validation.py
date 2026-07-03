@@ -92,9 +92,9 @@ def _check_structure(data: dict[str, Any]) -> list[str]:
         errors.append("workflows: missing required field 'workflows'")
         return errors
 
-    if not isinstance(workflows, dict):
+    if not isinstance(workflows, list):
         errors.append(
-            f"workflows: expected a mapping, got {type(workflows).__name__}"
+            f"workflows: expected a list, got {type(workflows).__name__}"
         )
         return errors
 
@@ -102,29 +102,50 @@ def _check_structure(data: dict[str, Any]) -> list[str]:
         errors.append("workflows: must be non-empty")
         return errors
 
-    workflow_names = set(workflows.keys())
+    # Workflow ids, for depends_on validation.
+    workflow_ids: set[str] = set()
+    for workflow in workflows:
+        if isinstance(workflow, dict):
+            workflow_id = workflow.get("id")
+            if isinstance(workflow_id, str):
+                workflow_ids.add(workflow_id)
 
     # Track step ids and artifact names across the whole protocol for
     # uniqueness checks.
+    seen_workflow_ids: dict[str, int] = {}
     seen_step_ids: dict[str, str] = {}
     seen_artifact_names: dict[str, str] = {}
 
-    for wf_name, workflow in workflows.items():
-        wf_path = f"workflows.{wf_name}"
-
+    for wf_idx, workflow in enumerate(workflows):
         if not isinstance(workflow, dict):
             errors.append(
-                f"{wf_path}: expected a mapping, got {type(workflow).__name__}"
+                f"workflows[{wf_idx}]: expected a mapping, got "
+                f"{type(workflow).__name__}"
             )
             continue
+
+        workflow_id = workflow.get("id")
+        if not isinstance(workflow_id, str) or not workflow_id:
+            errors.append(f"workflows[{wf_idx}]: missing required field 'id'")
+
+        wf_name = workflow_id if isinstance(workflow_id, str) else f"[{wf_idx}]"
+        wf_path = f"workflows.{wf_name}"
+
+        if isinstance(workflow_id, str):
+            if workflow_id in seen_workflow_ids:
+                errors.append(
+                    f"{wf_path}: duplicate workflow id {workflow_id!r}"
+                )
+            else:
+                seen_workflow_ids[workflow_id] = wf_idx
 
         # depends_on at workflow level.
         wf_depends_on = workflow.get("depends_on") or []
         if isinstance(wf_depends_on, list):
-            for idx, dep in enumerate(wf_depends_on):
-                if dep not in workflow_names:
+            for dep_idx, dep in enumerate(wf_depends_on):
+                if dep not in workflow_ids:
                     errors.append(
-                        f"{wf_path}.depends_on[{idx}]: {dep!r} does not "
+                        f"{wf_path}.depends_on[{dep_idx}]: {dep!r} does not "
                         "refer to a known workflow"
                     )
         else:
@@ -277,7 +298,7 @@ def _detect_cycle(nodes: list[str], deps: dict[str, list[str]]) -> list[str] | N
     return None
 
 
-def _cycle_errors(workflows: dict[str, Any]) -> list[str]:
+def _cycle_errors(workflows: list[Any]) -> list[str]:
     """Collect dependency-cycle errors for the workflow graph and each step graph.
 
     Tolerant of malformed input (non-dict workflows/steps, non-list
@@ -288,12 +309,24 @@ def _cycle_errors(workflows: dict[str, Any]) -> list[str]:
     """
     errors: list[str] = []
 
-    workflow_names = list(workflows.keys())
+    workflow_names = [
+        wf["id"]
+        for wf in workflows
+        if isinstance(wf, dict) and isinstance(wf.get("id"), str)
+    ]
+    workflow_names_set = set(workflow_names)
     workflow_deps: dict[str, list[str]] = {}
-    for name, workflow in workflows.items():
-        raw = workflow.get("depends_on") if isinstance(workflow, dict) else None
+    for workflow in workflows:
+        if not isinstance(workflow, dict):
+            continue
+        name = workflow.get("id")
+        if not isinstance(name, str):
+            continue
+        raw = workflow.get("depends_on")
         workflow_deps[name] = (
-            [d for d in raw if d in workflows] if isinstance(raw, list) else []
+            [d for d in raw if d in workflow_names_set]
+            if isinstance(raw, list)
+            else []
         )
     cycle = _detect_cycle(workflow_names, workflow_deps)
     if cycle is not None:
@@ -301,8 +334,11 @@ def _cycle_errors(workflows: dict[str, Any]) -> list[str]:
             "workflows: dependency cycle detected: " + " -> ".join(cycle)
         )
 
-    for wf_name, workflow in workflows.items():
+    for workflow in workflows:
         if not isinstance(workflow, dict):
+            continue
+        wf_name = workflow.get("id")
+        if not isinstance(wf_name, str):
             continue
         steps = workflow.get("steps")
         if not isinstance(steps, list):

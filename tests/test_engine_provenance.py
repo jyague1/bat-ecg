@@ -36,7 +36,7 @@ from bat.engine.run import create_run
 
 def make_run_ctx(tmp_path):
     protocol_path = tmp_path / "protocol.yaml"
-    protocol_path.write_text("workflows: {}\n")
+    protocol_path.write_text("workflows: []\n")
     return create_run(protocol_path)
 
 

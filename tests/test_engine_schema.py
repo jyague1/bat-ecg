@@ -21,7 +21,7 @@ vars:
   fs: 360
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -33,7 +33,7 @@ workflows:
             type: signal
             format: wfdb
 
-  features:
+  - id: features
     depends_on:
       - preprocess
     steps:
@@ -58,6 +58,10 @@ def write_protocol(tmp_path, contents, filename="protocol.yaml"):
     return path
 
 
+def workflow_by_id(protocol, workflow_id):
+    return next(w for w in protocol.workflows if w.id == workflow_id)
+
+
 def test_valid_protocol_parses_correctly(tmp_path):
     path = write_protocol(tmp_path, VALID_PROTOCOL)
 
@@ -66,9 +70,9 @@ def test_valid_protocol_parses_correctly(tmp_path):
     assert isinstance(protocol, Protocol)
     assert protocol.version == "0.1"
     assert protocol.vars == {"record": "100", "fs": 360}
-    assert list(protocol.workflows.keys()) == ["preprocess", "features"]
+    assert [w.id for w in protocol.workflows] == ["preprocess", "features"]
 
-    preprocess = protocol.workflows["preprocess"]
+    preprocess = workflow_by_id(protocol, "preprocess")
     assert preprocess.depends_on == []
     assert len(preprocess.steps) == 1
     load_step = preprocess.steps[0]
@@ -77,7 +81,7 @@ def test_valid_protocol_parses_correctly(tmp_path):
     assert load_step.outputs["raw_signal"].type == "signal"
     assert load_step.outputs["raw_signal"].format == "wfdb"
 
-    features = protocol.workflows["features"]
+    features = workflow_by_id(protocol, "features")
     assert features.depends_on == ["preprocess"]
     export_step = features.steps[0]
     assert export_step.inputs["signal"].artifact == "raw_signal"
@@ -94,17 +98,18 @@ def test_missing_required_field_raises_validation_error():
     # `module` is required on Step but omitted here.
     data = {
         "version": "0.1",
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
                         "name": "Load WFDB record",
                         # "module" omitted
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     with pytest.raises(ValidationError):
@@ -116,7 +121,7 @@ def test_missing_required_field_via_loader_raises_protocol_error(tmp_path):
 version: "0.1"
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -130,8 +135,9 @@ workflows:
 def test_duplicate_step_ids_raise_validation_error():
     data = {
         "version": "0.1",
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
@@ -141,9 +147,10 @@ def test_duplicate_step_ids_raise_validation_error():
                             "raw_signal": {"type": "signal", "format": "wfdb"}
                         },
                     },
-                ]
+                ],
             },
-            "features": {
+            {
+                "id": "features",
                 "steps": [
                     {
                         "id": "load_record",  # duplicate across workflows
@@ -153,9 +160,9 @@ def test_duplicate_step_ids_raise_validation_error():
                             "exported_signal": {"type": "signal", "format": "wfdb"}
                         },
                     },
-                ]
+                ],
             },
-        },
+        ],
     }
 
     with pytest.raises(ValidationError, match="duplicate step id"):
@@ -165,8 +172,9 @@ def test_duplicate_step_ids_raise_validation_error():
 def test_duplicate_artifact_names_raise_validation_error():
     data = {
         "version": "0.1",
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
@@ -187,9 +195,9 @@ def test_duplicate_artifact_names_raise_validation_error():
                             }
                         },
                     },
-                ]
+                ],
             }
-        },
+        ],
     }
 
     with pytest.raises(ValidationError, match="duplicate artifact name"):
@@ -199,8 +207,9 @@ def test_duplicate_artifact_names_raise_validation_error():
 def test_invalid_workflow_depends_on_raises_validation_error():
     data = {
         "version": "0.1",
-        "workflows": {
-            "features": {
+        "workflows": [
+            {
+                "id": "features",
                 "depends_on": ["does_not_exist"],
                 "steps": [
                     {
@@ -210,7 +219,7 @@ def test_invalid_workflow_depends_on_raises_validation_error():
                     }
                 ],
             }
-        },
+        ],
     }
 
     with pytest.raises(ValidationError, match="unknown workflow reference"):
@@ -220,8 +229,9 @@ def test_invalid_workflow_depends_on_raises_validation_error():
 def test_invalid_step_depends_on_raises_validation_error():
     data = {
         "version": "0.1",
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
@@ -229,9 +239,9 @@ def test_invalid_step_depends_on_raises_validation_error():
                         "module": "core.wfdb.read",
                         "depends_on": ["nonexistent_step"],
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     with pytest.raises(ValidationError, match="unknown step reference"):
@@ -241,8 +251,9 @@ def test_invalid_step_depends_on_raises_validation_error():
 def test_unresolved_artifact_input_raises_validation_error():
     data = {
         "version": "0.1",
-        "workflows": {
-            "features": {
+        "workflows": [
+            {
+                "id": "features",
                 "steps": [
                     {
                         "id": "export_signal",
@@ -252,9 +263,9 @@ def test_unresolved_artifact_input_raises_validation_error():
                             "signal": {"artifact": "never_declared"},
                         },
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     with pytest.raises(ValidationError, match="unknown artifact reference"):
@@ -264,9 +275,9 @@ def test_unresolved_artifact_input_raises_validation_error():
 def test_workflow_requires_at_least_one_step():
     data = {
         "version": "0.1",
-        "workflows": {
-            "preprocess": {"steps": []},
-        },
+        "workflows": [
+            {"id": "preprocess", "steps": []},
+        ],
     }
 
     with pytest.raises(ValidationError):
@@ -276,8 +287,9 @@ def test_workflow_requires_at_least_one_step():
 def test_invalid_artifact_type_raises_validation_error():
     data = {
         "version": "0.1",
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
@@ -290,9 +302,9 @@ def test_invalid_artifact_type_raises_validation_error():
                             }
                         },
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     with pytest.raises(ValidationError):
@@ -302,8 +314,9 @@ def test_invalid_artifact_type_raises_validation_error():
 def test_on_error_defaults_and_error_artifact():
     data = {
         "version": "0.1",
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
@@ -316,15 +329,46 @@ def test_on_error_defaults_and_error_artifact():
                             },
                         },
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     protocol = Protocol.model_validate(data)
-    step = protocol.workflows["preprocess"].steps[0]
+    step = workflow_by_id(protocol, "preprocess").steps[0]
     assert step.on_error.action == "continue"
     assert step.on_error.output["load_failure"].type == "error"
+
+
+def test_duplicate_workflow_ids_raise_validation_error():
+    data = {
+        "version": "0.1",
+        "workflows": [
+            {
+                "id": "preprocess",
+                "steps": [
+                    {
+                        "id": "load_record",
+                        "name": "Load WFDB record",
+                        "module": "core.wfdb.read",
+                    }
+                ],
+            },
+            {
+                "id": "preprocess",  # duplicate workflow id
+                "steps": [
+                    {
+                        "id": "load_record_again",
+                        "name": "Load WFDB record again",
+                        "module": "core.wfdb.read",
+                    }
+                ],
+            },
+        ],
+    }
+
+    with pytest.raises(ValidationError, match="duplicate workflow id"):
+        Protocol.model_validate(data)
 
 
 def test_load_protocol_invalid_yaml_raises_protocol_error(tmp_path):

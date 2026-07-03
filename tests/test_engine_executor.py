@@ -226,7 +226,7 @@ def test_execute_protocol_linear_chain_executes_in_order(protocol_path):
     ]
     protocol = Protocol(
         version="0.1",
-        workflows={"main": Workflow(steps=steps)},
+        workflows=[Workflow(id="main", steps=steps)],
     )
     plugin_registry = {
         "test.load": make_recorder("load_record", "raw_signal"),
@@ -292,7 +292,7 @@ def test_execute_protocol_branching_dag_uses_yaml_order_tiebreaker(protocol_path
             outputs={"merged": out_decl()},
         ),
     ]
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=steps)])
     plugin_registry = {
         "test.load": make_recorder("load_record", "raw_signal"),
         "test.filter_ecg": make_recorder("filter_ecg", "ecg_filtered"),
@@ -330,8 +330,9 @@ def test_execute_protocol_workflow_level_ordering(protocol_path):
 
     protocol = Protocol(
         version="0.1",
-        workflows={
-            "report": Workflow(
+        workflows=[
+            Workflow(
+                id="report",
                 depends_on=["features"],
                 steps=[
                     make_step(
@@ -342,14 +343,16 @@ def test_execute_protocol_workflow_level_ordering(protocol_path):
                     )
                 ],
             ),
-            "preprocess": Workflow(
+            Workflow(
+                id="preprocess",
                 steps=[
                     make_step(
                         "load", module="test.load", outputs={"raw": out_decl()}
                     )
                 ],
             ),
-            "features": Workflow(
+            Workflow(
+                id="features",
                 depends_on=["preprocess"],
                 steps=[
                     make_step(
@@ -360,7 +363,7 @@ def test_execute_protocol_workflow_level_ordering(protocol_path):
                     )
                 ],
             ),
-        },
+        ],
     )
     plugin_registry = {
         "test.load": make_recorder("load", "raw"),
@@ -389,7 +392,7 @@ def test_execute_protocol_step_cycle_raises_error(protocol_path):
         make_step("a", module="test.a", depends_on=["b"]),
         make_step("b", module="test.b", depends_on=["a"]),
     ]
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=steps)])
 
     with pytest.raises(CycleError):
         execute_protocol(protocol, registry, {}, run_ctx)
@@ -401,10 +404,10 @@ def test_execute_protocol_workflow_cycle_raises_error(protocol_path):
 
     protocol = Protocol(
         version="0.1",
-        workflows={
-            "a": Workflow(depends_on=["b"], steps=[make_step("step_a", module="test.a")]),
-            "b": Workflow(depends_on=["a"], steps=[make_step("step_b", module="test.b")]),
-        },
+        workflows=[
+            Workflow(id="a", depends_on=["b"], steps=[make_step("step_a", module="test.a")]),
+            Workflow(id="b", depends_on=["a"], steps=[make_step("step_b", module="test.b")]),
+        ],
     )
 
     with pytest.raises(CycleError):
@@ -434,7 +437,7 @@ def test_step_inputs_resolved_from_registry_before_execution(protocol_path):
         outputs={"filtered_signal": out_decl()},
     )
     protocol = Protocol(
-        version="0.1", workflows={"main": Workflow(steps=[load_step, filter_step])}
+        version="0.1", workflows=[Workflow(id="main", steps=[load_step, filter_step])]
     )
     plugin_registry = {"test.load": load_module, "test.filter": filter_module}
 
@@ -456,7 +459,7 @@ def test_missing_module_in_plugin_registry_raises_clear_error(protocol_path):
     registry = ArtifactRegistry()
 
     step = make_step("orphan", module="does.not.exist", outputs={"out": out_decl()})
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=[step])})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
 
     # No on_error is declared, so handle_step_error reports "stop" and the
     # executor wraps the underlying ExecutorError in StepExecutionError.
@@ -479,7 +482,7 @@ def test_step_missing_declared_output_raises_validation_error(protocol_path):
     step = make_step(
         "no_outputs", module="test.no_outputs", outputs={"expected_artifact": out_decl()}
     )
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=[step])})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
     plugin_registry = {"test.no_outputs": module}
 
     with pytest.raises(StepExecutionError) as exc_info:
@@ -574,7 +577,7 @@ def test_step_with_no_on_error_reraises_and_stops_run(protocol_path):
         make_step("failing", module="test.failing"),
         make_step("never_runs", module="test.never", depends_on=["failing"]),
     ]
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=steps)])
     ran_second = []
     plugin_registry = {
         "test.failing": failing_module(),
@@ -602,7 +605,7 @@ def test_step_with_on_error_continue_produces_error_artifact_and_continues(proto
         ),
         make_step("downstream", module="test.downstream", depends_on=["failing"]),
     ]
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=steps)])
     downstream_ran = []
     plugin_registry = {
         "test.failing": failing_module(),
@@ -648,7 +651,7 @@ def test_records_capture_real_status_and_timings_on_success(protocol_path):
             outputs={"filtered_signal": out_decl()},
         ),
     ]
-    protocol = Protocol(version="0.1", workflows={"wf": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="wf", steps=steps)])
 
     from bat.engine.executor import RunRecords
 
@@ -682,7 +685,7 @@ def test_records_mark_downstream_steps_skipped_after_unhandled_failure(protocol_
         make_step("boom", module="test.boom", outputs={"out": out_decl()}),
         make_step("after", module="test.after", depends_on=["boom"]),
     ]
-    protocol = Protocol(version="0.1", workflows={"wf": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="wf", steps=steps)])
     plugin_registry = {
         "test.boom": failing_module(),
         "test.after": RecordingModule(output_names=[]),
@@ -719,7 +722,7 @@ def test_records_mark_handled_failure_as_failed_step_partial_workflow(protocol_p
         ),
         make_step("after", module="test.after", depends_on=["boom"]),
     ]
-    protocol = Protocol(version="0.1", workflows={"wf": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="wf", steps=steps)])
     plugin_registry = {
         "test.boom": failing_module(),
         "test.after": RecordingModule(output_names=[]),

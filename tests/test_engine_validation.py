@@ -14,7 +14,7 @@ from bat.engine.validation import validate_protocol
 VALID_PROTOCOL = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -55,7 +55,7 @@ def test_undefined_var_tokens_do_not_cause_errors(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -72,7 +72,7 @@ def test_missing_module_field_reported(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -88,7 +88,7 @@ def test_duplicate_step_ids_reported(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -106,12 +106,12 @@ def test_invalid_workflow_depends_on_reported(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
         module: core.wfdb.read
-  features:
+  - id: features
     depends_on: [nonexistent]
     steps:
       - id: extract_features
@@ -132,7 +132,7 @@ def test_invalid_step_depends_on_reported(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -153,7 +153,7 @@ def test_duplicate_artifact_names_reported(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -180,7 +180,7 @@ workflows:
 def test_missing_version_reported(tmp_path):
     protocol = """\
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -194,7 +194,7 @@ workflows:
 def test_empty_workflows_reported(tmp_path):
     protocol = """\
 version: "0.1"
-workflows: {}
+workflows: []
 """
     path = write(tmp_path, "protocol.yaml", protocol)
     errors = validate_protocol(path)
@@ -205,12 +205,46 @@ def test_workflow_with_no_steps_reported(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps: []
 """
     path = write(tmp_path, "protocol.yaml", protocol)
     errors = validate_protocol(path)
     assert any("steps" in e and "at least one step" in e for e in errors)
+
+
+def test_workflow_missing_id_reported(tmp_path):
+    protocol = """\
+version: "0.1"
+workflows:
+  - steps:
+      - id: load_record
+        name: Load WFDB record
+        module: core.wfdb.read
+"""
+    path = write(tmp_path, "protocol.yaml", protocol)
+    errors = validate_protocol(path)
+    assert any("workflows[0]" in e and "missing required field 'id'" in e for e in errors)
+
+
+def test_duplicate_workflow_ids_reported(tmp_path):
+    protocol = """\
+version: "0.1"
+workflows:
+  - id: preprocess
+    steps:
+      - id: load_record
+        name: Load WFDB record
+        module: core.wfdb.read
+  - id: preprocess
+    steps:
+      - id: load_record_again
+        name: Load WFDB record again
+        module: core.wfdb.read
+"""
+    path = write(tmp_path, "protocol.yaml", protocol)
+    errors = validate_protocol(path)
+    assert any("duplicate workflow id" in e and "preprocess" in e for e in errors)
 
 
 def test_nonexistent_file_reported(tmp_path):
@@ -234,7 +268,7 @@ def test_imports_are_resolved_before_validation(tmp_path):
         "shared.yaml",
         """\
 workflows:
-  imported:
+  - id: imported
     steps:
       - id: imported_step
         name: Imported step
@@ -245,7 +279,7 @@ version: "0.1"
 imports:
   - shared.yaml
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -265,7 +299,7 @@ version: "0.1"
 imports:
   - does-not-exist.yaml
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -282,11 +316,11 @@ def test_two_independent_structural_problems_both_reported(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
-  features:
+  - id: features
     depends_on: [nonexistent]
     steps:
       - id: extract_features
@@ -320,13 +354,13 @@ def test_workflow_dependency_cycle_is_reported(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  first:
+  - id: first
     depends_on: [second]
     steps:
       - id: s1
         name: S1
         module: core.wfdb.read
-  second:
+  - id: second
     depends_on: [first]
     steps:
       - id: s2
@@ -345,7 +379,7 @@ def test_step_dependency_cycle_is_reported(tmp_path):
     protocol = """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: a
         name: A

@@ -77,11 +77,12 @@ def test_non_string_values_are_not_modified():
 
 def test_missing_variable_raises_descriptive_error_with_field_location():
     raw = {
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [{"params": {"path": "data/{{ record }}"}}],
             }
-        }
+        ]
     }
 
     with pytest.raises(VariableResolutionError) as exc_info:
@@ -89,7 +90,7 @@ def test_missing_variable_raises_descriptive_error_with_field_location():
 
     message = str(exc_info.value)
     assert "record" in message
-    assert "workflows.preprocess.steps.[0].params.path" in message
+    assert "workflows.[0].steps.[0].params.path" in message
 
 
 def test_multiple_vars_in_one_string():
@@ -182,7 +183,7 @@ vars:
   record: "100"
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -194,7 +195,7 @@ workflows:
 
     protocol = load_protocol(path)
 
-    step = protocol.workflows["preprocess"].steps[0]
+    step = next(w for w in protocol.workflows if w.id == "preprocess").steps[0]
     assert step.params["path"] == "data/100/ecg"
 
 
@@ -206,7 +207,7 @@ vars:
   record: "100"
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -218,7 +219,7 @@ workflows:
 
     protocol = load_protocol(path, cli_vars={"record": "200"})
 
-    step = protocol.workflows["preprocess"].steps[0]
+    step = next(w for w in protocol.workflows if w.id == "preprocess").steps[0]
     assert step.params["path"] == "data/200/ecg"
 
 
@@ -230,7 +231,7 @@ vars:
   record: "100"
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -243,7 +244,7 @@ workflows:
 
     protocol = load_protocol(path, vars_file=vars_file)
 
-    step = protocol.workflows["preprocess"].steps[0]
+    step = next(w for w in protocol.workflows if w.id == "preprocess").steps[0]
     assert step.params["path"] == "data/300/ecg"
 
 
@@ -259,7 +260,7 @@ vars:
   record: "100"
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -272,7 +273,7 @@ workflows:
 
     protocol = load_protocol(path)
 
-    step = protocol.workflows["preprocess"].steps[0]
+    step = next(w for w in protocol.workflows if w.id == "preprocess").steps[0]
     assert step.params["path"] == "data/100"
     assert step.params["fs"] == "360"
 
@@ -282,7 +283,7 @@ def test_load_protocol_missing_variable_raises_protocol_error(tmp_path):
 version: "0.1"
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record

@@ -25,21 +25,26 @@ def write(base: Path, relpath: str, contents: str) -> Path:
     return path
 
 
+def workflow_by_id(workflows, workflow_id):
+    return next(w for w in workflows if w["id"] == workflow_id)
+
+
 def test_no_imports_passes_through_unchanged(tmp_path):
     raw = {
         "version": "0.1",
         "vars": {"record": "100"},
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
                         "name": "Load WFDB record",
                         "module": "core.wfdb.read",
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     result, imported_vars = resolve_imports(raw, base_path=tmp_path)
@@ -49,7 +54,7 @@ def test_no_imports_passes_through_unchanged(tmp_path):
 
 
 def test_no_imports_key_present_still_returns_equivalent_dict(tmp_path):
-    raw = {"version": "0.1", "workflows": {}}
+    raw = {"version": "0.1", "workflows": []}
 
     result, imported_vars = resolve_imports(raw, base_path=tmp_path)
 
@@ -73,17 +78,18 @@ vars:
         "version": "0.1",
         "imports": ["vars/common.yaml"],
         "vars": {"record": "100"},
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
                         "name": "Load WFDB record",
                         "module": "core.wfdb.read",
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     result, imported_vars = resolve_imports(raw, base_path=tmp_path)
@@ -101,7 +107,7 @@ def test_imported_workflows_merged_into_protocol(tmp_path):
         "workflows/preprocess.yaml",
         """
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -116,8 +122,9 @@ workflows:
     raw = {
         "version": "0.1",
         "imports": ["workflows/preprocess.yaml"],
-        "workflows": {
-            "features": {
+        "workflows": [
+            {
+                "id": "features",
                 "steps": [
                     {
                         "id": "export_signal",
@@ -128,16 +135,16 @@ workflows:
                             "exported_signal": {"type": "signal", "format": "wfdb"}
                         },
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     result, imported_vars = resolve_imports(raw, base_path=tmp_path)
 
-    assert set(result["workflows"].keys()) == {"preprocess", "features"}
-    assert result["workflows"]["preprocess"]["steps"][0]["id"] == "load_record"
-    assert result["workflows"]["features"]["steps"][0]["id"] == "export_signal"
+    assert {w["id"] for w in result["workflows"]} == {"preprocess", "features"}
+    assert workflow_by_id(result["workflows"], "preprocess")["steps"][0]["id"] == "load_record"
+    assert workflow_by_id(result["workflows"], "features")["steps"][0]["id"] == "export_signal"
     assert imported_vars == {}
 
 
@@ -167,17 +174,18 @@ vars:
     raw = {
         "version": "0.1",
         "imports": ["nested/child.yaml"],
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
                         "name": "Load WFDB record",
                         "module": "core.wfdb.read",
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     result, imported_vars = resolve_imports(raw, base_path=tmp_path)
@@ -193,17 +201,18 @@ def test_circular_imports_raise_error(tmp_path):
     raw = {
         "version": "0.1",
         "imports": ["a.yaml"],
-        "workflows": {
-            "preprocess": {
+        "workflows": [
+            {
+                "id": "preprocess",
                 "steps": [
                     {
                         "id": "load_record",
                         "name": "Load WFDB record",
                         "module": "core.wfdb.read",
                     }
-                ]
+                ],
             }
-        },
+        ],
     }
 
     with pytest.raises(ImportResolutionError, match="circular import"):
@@ -214,7 +223,7 @@ def test_import_path_with_variable_expression_raises_error(tmp_path):
     raw = {
         "version": "0.1",
         "imports": ["vars/{{ record }}.yaml"],
-        "workflows": {},
+        "workflows": [],
     }
 
     with pytest.raises(ImportResolutionError, match=r"variable expression"):
@@ -225,7 +234,7 @@ def test_missing_import_file_raises_descriptive_error(tmp_path):
     raw = {
         "version": "0.1",
         "imports": ["does_not_exist.yaml"],
-        "workflows": {},
+        "workflows": [],
     }
 
     with pytest.raises(ImportResolutionError, match="does_not_exist.yaml"):
@@ -236,7 +245,7 @@ def test_import_entry_must_be_a_string(tmp_path):
     raw = {
         "version": "0.1",
         "imports": [{"not": "a string"}],
-        "workflows": {},
+        "workflows": [],
     }
 
     with pytest.raises(ImportResolutionError, match="static string"):
@@ -247,7 +256,7 @@ def test_imports_key_not_a_list_raises_error(tmp_path):
     raw = {
         "version": "0.1",
         "imports": "vars/common.yaml",
-        "workflows": {},
+        "workflows": [],
     }
 
     with pytest.raises(ImportResolutionError, match="list"):
@@ -271,7 +280,7 @@ vars:
         "workflows/preprocess.yaml",
         """
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -294,7 +303,7 @@ vars:
   record: "100"
 
 workflows:
-  features:
+  - id: features
     depends_on:
       - preprocess
     steps:
@@ -314,9 +323,11 @@ workflows:
     protocol = load_protocol(protocol_path)
 
     assert protocol.vars == {"default_fs": 360, "record": "100"}
-    assert set(protocol.workflows.keys()) == {"preprocess", "features"}
-    assert protocol.workflows["preprocess"].steps[0].id == "load_record"
-    assert protocol.workflows["features"].depends_on == ["preprocess"]
+    assert {w.id for w in protocol.workflows} == {"preprocess", "features"}
+    preprocess = next(w for w in protocol.workflows if w.id == "preprocess")
+    features = next(w for w in protocol.workflows if w.id == "features")
+    assert preprocess.steps[0].id == "load_record"
+    assert features.depends_on == ["preprocess"]
 
 
 def test_load_protocol_missing_import_raises_protocol_error(tmp_path):
@@ -327,7 +338,7 @@ imports:
   - does_not_exist.yaml
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -350,7 +361,7 @@ imports:
   - a.yaml
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record

@@ -106,7 +106,7 @@ EXPLODE_BODY = """\
 PROTOCOL = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load
@@ -131,7 +131,7 @@ workflows:
 FAILING_PROTOCOL = """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: explode_step
         name: Explode
@@ -141,7 +141,7 @@ workflows:
 MISSING_MODULE_PROTOCOL = """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: mystery
         name: Mystery
@@ -264,7 +264,7 @@ version: "0.1"
 vars:
   record: "100"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load
@@ -298,10 +298,9 @@ workflows:
     resolved = yaml.safe_load(
         (result.run_ctx.run_dir / "resolved_protocol.yaml").read_text()
     )
+    preprocess = next(w for w in resolved["workflows"] if w["id"] == "preprocess")
     load_step = next(
-        s
-        for s in resolved["workflows"]["preprocess"]["steps"]
-        if s["id"] == "load_record"
+        s for s in preprocess["steps"] if s["id"] == "load_record"
     )
     assert load_step["params"]["record"] == "202"
 
@@ -348,7 +347,7 @@ def test_dry_run_protocol_missing_module_raises_before_run_dir_created(tmp_path)
 CYCLIC_STEP_PROTOCOL = """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: a
         name: A
@@ -363,13 +362,13 @@ workflows:
 CYCLIC_WORKFLOW_PROTOCOL = """\
 version: "0.1"
 workflows:
-  first:
+  - id: first
     depends_on: [second]
     steps:
       - id: s1
         name: S1
         module: stub.load
-  second:
+  - id: second
     depends_on: [first]
     steps:
       - id: s2

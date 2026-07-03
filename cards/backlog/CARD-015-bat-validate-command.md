@@ -24,7 +24,7 @@ bat validate protocol.yaml
    - Each step has `id`, `name`, and `module`
    - Step IDs are unique across the protocol
    - Artifact names declared in `outputs` are unique across the protocol
-   - `depends_on` references in workflows refer to existing workflow keys
+   - `depends_on` references in workflows refer to existing workflow ids
    - `depends_on` references in steps refer to existing step IDs within the same workflow
 3. Static imports are resolved (CARD-004) — imported files are read and inlined before validation
 4. Variables are not substituted — `{{ var }}` tokens are left as-is for validation purposes

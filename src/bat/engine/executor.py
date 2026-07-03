@@ -238,13 +238,13 @@ def check_acyclic(protocol: Protocol) -> None:
     schema-validated ``Protocol``; the raw-dict validator in
     :mod:`bat.engine.validation` does its own tolerant cycle check.
     """
-    workflow_names = list(protocol.workflows.keys())
+    workflow_ids = [workflow.id for workflow in protocol.workflows]
     workflow_depends_on = {
-        name: workflow.depends_on for name, workflow in protocol.workflows.items()
+        workflow.id: workflow.depends_on for workflow in protocol.workflows
     }
-    topological_sort(workflow_names, workflow_depends_on)
+    topological_sort(workflow_ids, workflow_depends_on)
 
-    for workflow in protocol.workflows.values():
+    for workflow in protocol.workflows:
         step_ids = [step.id for step in workflow.steps]
         step_depends_on = {step.id: step.depends_on for step in workflow.steps}
         topological_sort(step_ids, step_depends_on)
@@ -289,15 +289,16 @@ def execute_protocol(
     # and lets us seed one outcome record per workflow/step (all "skipped"
     # until proven otherwise), so a run that stops early still leaves an
     # accurate record for the steps that never ran -- no reconstruction.
-    workflow_names = list(protocol.workflows.keys())
+    workflows_by_id = {workflow.id: workflow for workflow in protocol.workflows}
+    workflow_ids = list(workflows_by_id.keys())
     workflow_depends_on = {
-        name: workflow.depends_on for name, workflow in protocol.workflows.items()
+        workflow.id: workflow.depends_on for workflow in protocol.workflows
     }
-    workflow_order = topological_sort(workflow_names, workflow_depends_on)
+    workflow_order = topological_sort(workflow_ids, workflow_depends_on)
 
     plan: list[tuple[str, Any, list[Step]]] = []
     for workflow_name in workflow_order:
-        workflow = protocol.workflows[workflow_name]
+        workflow = workflows_by_id[workflow_name]
         steps_by_id = {step.id: step for step in workflow.steps}
         step_depends_on = {step.id: step.depends_on for step in workflow.steps}
         step_order = topological_sort(list(steps_by_id.keys()), step_depends_on)

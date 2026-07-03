@@ -39,7 +39,7 @@ VALID_CASES = {
     "minimal": """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: s1
         name: Step one
@@ -52,7 +52,7 @@ workflows:
     "two_workflows_with_deps": """\
 version: "0.1"
 workflows:
-  a:
+  - id: a
     steps:
       - id: s1
         name: One
@@ -61,7 +61,7 @@ workflows:
           art1:
             type: signal
             format: wfdb
-  b:
+  - id: b
     depends_on: [a]
     steps:
       - id: s2
@@ -83,7 +83,7 @@ workflows:
 SHARED_INVALID_CASES = {
     "missing_version": """\
 workflows:
-  main:
+  - id: main
     steps:
       - id: s1
         name: One
@@ -91,12 +91,12 @@ workflows:
 """,
     "empty_workflows": """\
 version: "0.1"
-workflows: {}
+workflows: []
 """,
     "missing_module": """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: s1
         name: One
@@ -104,12 +104,12 @@ workflows:
     "duplicate_step_ids": """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: dup
         name: One
         module: core.wfdb.read
-  other:
+  - id: other
     steps:
       - id: dup
         name: Two
@@ -118,7 +118,7 @@ workflows:
     "duplicate_artifact_names": """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: s1
         name: One
@@ -135,10 +135,24 @@ workflows:
             type: signal
             format: wfdb
 """,
+    "duplicate_workflow_ids": """\
+version: "0.1"
+workflows:
+  - id: main
+    steps:
+      - id: s1
+        name: One
+        module: core.wfdb.read
+  - id: main
+    steps:
+      - id: s2
+        name: Two
+        module: core.wfdb.read
+""",
     "bad_workflow_depends_on": """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     depends_on: [nonexistent]
     steps:
       - id: s1
@@ -148,7 +162,7 @@ workflows:
     "bad_step_depends_on": """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: s1
         name: One
@@ -158,13 +172,13 @@ workflows:
     "workflow_cycle": """\
 version: "0.1"
 workflows:
-  first:
+  - id: first
     depends_on: [second]
     steps:
       - id: s1
         name: One
         module: core.wfdb.read
-  second:
+  - id: second
     depends_on: [first]
     steps:
       - id: s2
@@ -174,7 +188,7 @@ workflows:
     "step_cycle": """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: a
         name: A
@@ -225,7 +239,7 @@ def test_undefined_variable_is_a_documented_asymmetry(tmp_path):
     content = """\
 version: "0.1"
 workflows:
-  main:
+  - id: main
     steps:
       - id: s1
         name: One

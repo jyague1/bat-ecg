@@ -24,7 +24,7 @@ vars:
   fs: 360
 
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -36,7 +36,7 @@ workflows:
             type: signal
             format: wfdb
 
-  features:
+  - id: features
     depends_on:
       - preprocess
     steps:
@@ -59,9 +59,10 @@ workflows:
 ### Top-level: `Protocol`
 - `version`: str (required)
 - `vars`: dict[str, Any] (optional, default empty)
-- `workflows`: dict[str, Workflow] (required, ordered)
+- `workflows`: list[Workflow] (required, at least one)
 
 ### `Workflow`
+- `id`: str (required) — unique within the protocol
 - `depends_on`: list[str] (optional, default empty) — references other workflow IDs
 - `steps`: list[Step] (required, at least one)
 
@@ -88,9 +89,10 @@ workflows:
 
 ## Validation rules
 
+- Workflow IDs must be unique across the entire protocol
 - Step IDs must be unique across the entire protocol (not just within a workflow)
 - Artifact names declared in `outputs` must be unique across the entire protocol
-- `depends_on` references in workflows must refer to existing workflow keys
+- `depends_on` references in workflows must refer to existing workflow IDs
 - `depends_on` references in steps must refer to existing step IDs within the same workflow
 - `inputs.*.artifact` must reference an artifact name declared in a previous step's outputs (order based on topological sort — full resolution can be deferred; at parse time, check that the name exists somewhere in the protocol)
 

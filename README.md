@@ -63,7 +63,7 @@ vars:
   record: "100"
 
 workflows:
-  load:
+  - id: load
     steps:
       - id: load_record
         name: Load WFDB record
@@ -178,8 +178,8 @@ vars:                                # protocol-level variables, substitutable v
   record: "100"
   export_dir: "exported"
 
-workflows:                           # one or more named workflows
-  load:                              # workflow id
+workflows:                           # ordered list of workflows (min. 1)
+  - id: load                         # unique workflow id (unique across the whole protocol)
     steps:                           # ordered list of steps (min. 1)
       - id: load_record              # unique step id (unique across the whole protocol)
         name: Load WFDB record       # human-readable step name
@@ -197,7 +197,7 @@ workflows:                           # one or more named workflows
               type: error
               format: yaml
 
-  export:
+  - id: export
     depends_on: [load]               # this workflow only runs after "load" completes
     steps:
       - id: export_record
@@ -219,7 +219,8 @@ Field reference:
 
 - **`version`** — required protocol schema version string.
 - **`vars`** — a flat mapping of protocol-level variables (see [Variables](#variables)).
-- **`workflows`** — a mapping of workflow id to workflow definition. Workflows form a DAG via `depends_on`; a workflow that consumes another workflow's artifacts must still declare that dependency explicitly — artifact references alone don't imply ordering.
+- **`workflows`** — an ordered, non-empty list of workflows. Workflows form a DAG via `depends_on`; a workflow that consumes another workflow's artifacts must still declare that dependency explicitly — artifact references alone don't imply ordering.
+  - **`workflows[].id`** — required, unique workflow id across the entire protocol.
   - **`depends_on`** (workflow-level) — list of workflow ids that must complete first.
   - **`steps`** — an ordered, non-empty list of steps.
   - **`on_error`** (workflow-level) — if the workflow's own steps propagate an unhandled failure and `action: continue` is set here, that workflow stops but the run moves on to the next workflow rather than aborting entirely.

@@ -71,7 +71,7 @@ Error handling may also be declared at the workflow level:
 
 ```yaml
 workflows:
-  preprocess:
+  - id: preprocess
     on_error:
       action: continue
     steps:

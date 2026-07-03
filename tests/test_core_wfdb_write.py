@@ -215,7 +215,7 @@ def test_end_to_end_read_then_write_chain(wfdb_record_path, tmp_path):
         depends_on=["load_record"],
     )
     protocol = Protocol(
-        version="0.1", workflows={"main": Workflow(steps=[read_step, write_step])}
+        version="0.1", workflows=[Workflow(id="main", steps=[read_step, write_step])]
     )
 
     plugin_registry = discover_plugins(None)

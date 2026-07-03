@@ -190,7 +190,7 @@ def test_execute_protocol_runs_check_after_successful_step(protocol_path):
         }
 
     step = make_step("bad_step", module="test.bad", outputs={"out": out_decl()})
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=[step])})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
     plugin_registry = {"test.bad": SimpleNamespace(run=run)}
 
     with pytest.raises(StepExecutionError) as exc_info:
@@ -211,7 +211,7 @@ def test_execute_protocol_violation_outside_artifacts_dir_stops_run(
         return {"out": make_artifact("out", outside_path)}
 
     step = make_step("escaping_step", module="test.escape", outputs={"out": out_decl()})
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=[step])})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
     plugin_registry = {"test.escape": SimpleNamespace(run=run)}
 
     with pytest.raises(StepExecutionError) as exc_info:
@@ -246,7 +246,7 @@ def test_execute_protocol_violation_respects_on_error_continue(protocol_path):
         ),
         make_step("after", module="test.after", depends_on=["bad_step"]),
     ]
-    protocol = Protocol(version="0.1", workflows={"main": Workflow(steps=steps)})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=steps)])
     after_ran = []
     plugin_registry = {
         "test.bad": SimpleNamespace(run=run),

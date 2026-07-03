@@ -19,7 +19,7 @@ vars:
   record: "100"
 
 workflows:
-  load:
+  - id: load
     steps:
       - id: load_record
         name: Load WFDB record

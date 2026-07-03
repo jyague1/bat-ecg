@@ -14,7 +14,7 @@ from bat.cli import main
 VALID_PROTOCOL = """\
 version: "0.1"
 workflows:
-  load:
+  - id: load
     steps:
       - id: load_record
         name: Load WFDB record
@@ -49,7 +49,7 @@ def test_missing_module_field_prints_error_and_exits_one():
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -70,7 +70,7 @@ def test_duplicate_step_ids_prints_error_and_exits_one():
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
@@ -94,12 +94,12 @@ def test_invalid_depends_on_prints_error_and_exits_one():
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
         module: core.wfdb.read
-  features:
+  - id: features
     depends_on: [nonexistent]
     steps:
       - id: extract_features
@@ -143,11 +143,11 @@ def test_two_independent_structural_problems_both_reported():
     protocol = """\
 version: "0.1"
 workflows:
-  preprocess:
+  - id: preprocess
     steps:
       - id: load_record
         name: Load WFDB record
-  features:
+  - id: features
     depends_on: [nonexistent]
     steps:
       - id: extract_features

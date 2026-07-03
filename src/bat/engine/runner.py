@@ -147,7 +147,8 @@ def _load_and_validate(
     plugin_registry = discover_plugins(plugins_dir)
 
     missing: list[tuple[str, str, str]] = []
-    for workflow_id, workflow in protocol.workflows.items():
+    for workflow in protocol.workflows:
+        workflow_id = workflow.id
         for step in workflow.steps:
             if step.module not in plugin_registry:
                 missing.append((step.module, workflow_id, step.id))
@@ -164,15 +165,16 @@ def _workflow_step_order(protocol: Protocol) -> list[tuple[str, list[Step]]]:
     performs internally, using the same :func:`topological_sort` helper, so
     dry-run's plan and the real execution order are guaranteed to match.
     """
-    workflow_names = list(protocol.workflows.keys())
+    workflows_by_id = {workflow.id: workflow for workflow in protocol.workflows}
+    workflow_names = list(workflows_by_id.keys())
     workflow_depends_on = {
-        name: workflow.depends_on for name, workflow in protocol.workflows.items()
+        workflow.id: workflow.depends_on for workflow in protocol.workflows
     }
     workflow_order = topological_sort(workflow_names, workflow_depends_on)
 
     result: list[tuple[str, list[Step]]] = []
     for workflow_id in workflow_order:
-        workflow = protocol.workflows[workflow_id]
+        workflow = workflows_by_id[workflow_id]
         steps_by_id = {step.id: step for step in workflow.steps}
         step_depends_on = {step.id: step.depends_on for step in workflow.steps}
         step_order = topological_sort(list(steps_by_id.keys()), step_depends_on)
@@ -282,7 +284,7 @@ def run_protocol(
     write_provenance(run_ctx, provenance)
 
     workflow_count = len(protocol.workflows)
-    step_count = sum(len(workflow.steps) for workflow in protocol.workflows.values())
+    step_count = sum(len(workflow.steps) for workflow in protocol.workflows)
     artifact_count = len(registry.all())
     duration_seconds = (finished_at - started_at).total_seconds()
 
@@ -331,10 +333,11 @@ def _build_provenance(
     """
     environment = build_environment_record(plugin_registry)
     module_versions = _module_version_lookup(environment)
+    workflows_by_id = {workflow.id: workflow for workflow in protocol.workflows}
 
     workflow_records: list[WorkflowRecord] = []
     for wf_outcome in records.workflows:
-        workflow = protocol.workflows[wf_outcome.workflow_id]
+        workflow = workflows_by_id[wf_outcome.workflow_id]
         steps_by_id = {step.id: step for step in workflow.steps}
 
         step_records: list[StepRecord] = []

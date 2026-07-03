@@ -20,15 +20,15 @@ The same DAG model applies at both levels:
 Given:
 ```yaml
 workflows:
-  preprocess:
+  - id: preprocess
     steps: [...]
 
-  features:
+  - id: features
     depends_on:
       - preprocess
     steps: [...]
 
-  report:
+  - id: report
     depends_on:
       - features
     steps: [...]
