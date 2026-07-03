@@ -103,14 +103,11 @@ Detect R-peaks in an ECG signal using the Pan-Tompkins algorithm.
   name: Detect R-peaks
   module: lab.ecg.detect_rpeaks
   inputs:
-    signal:
-      artifact: filtered_signal
+    signal: filtered_signal
   params:
     min_distance_ms: 200.0
   outputs:
-    rpeaks:
-      type: annotations
-      format: wfdb
+    rpeaks: rpeaks
 ```
 ```
 

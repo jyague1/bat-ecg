@@ -106,20 +106,15 @@ workflows:
         params:
           record: "{{ record }}"
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          raw_signal: raw_signal
       - id: filter_signal
         name: Filter
         module: stub.filter
         depends_on: [load_record]
         inputs:
-          signal:
-            artifact: raw_signal
+          signal: raw_signal
         outputs:
-          filtered_signal:
-            type: signal
-            format: wfdb
+          filtered_signal: filtered_signal
 """
 
 FAILING_PROTOCOL = """\

@@ -363,66 +363,6 @@ def execute_protocol(
             raise
 
 
-def _remap_outputs_to_step_names(
-    step: Step, module: Any, outputs: dict[str, Any]
-) -> dict[str, Any]:
-    """Remap a module's returned outputs dict from schema field names to
-    the step's declared artifact names, when they differ (CARD-019).
-
-    A module's ``schema.Outputs`` declares a *fixed* output field name
-    (e.g. ``core.wfdb.read``'s schema has a single output called
-    ``signal``), but a protocol step is free to declare an arbitrary
-    artifact name for that same output (e.g. ``outputs: {raw_signal:
-    {...}}``). A module has no way of knowing, from inside ``run()``, what
-    name the step gave its output -- it can only reasonably return a dict
-    keyed by its own schema's output field names (e.g. ``{"signal":
-    Artifact(...)}``).
-
-    This helper bridges that gap: if the module exposes a ``schema``
-    attribute with an ``Outputs`` Pydantic model, and the set of keys
-    ``module.run()`` returned doesn't match the set of keys declared in
-    ``step.outputs``, but the two are the same *size* as the schema's own
-    output fields, the returned dict is remapped positionally -- the i-th
-    schema output field name maps to the i-th step-declared output name,
-    relying on both being ordered mappings (plain dicts and YAML-loaded
-    mappings preserve declaration order). This only remaps the dict's
-    *keys*; :func:`_finalize_artifact` is responsible for updating each
-    artifact's own ``.name``/``.path``/creator fields and writing
-    ``meta.yaml``, and runs for every declared output regardless of
-    whether a remap happened here.
-
-    If the returned dict's keys already match ``step.outputs``' keys
-    exactly (true of every pre-CARD-019 module/test fixture), this is a
-    no-op -- remapping only ever kicks in on an actual mismatch, so
-    pre-existing behavior is fully preserved.
-    """
-    step_output_names = set(step.outputs.keys())
-    returned_names = set(outputs.keys())
-    if step_output_names == returned_names:
-        return outputs
-
-    schema = getattr(module, "schema", None)
-    outputs_model = getattr(schema, "Outputs", None) if schema is not None else None
-    if outputs_model is None:
-        return outputs
-
-    schema_fields = list(outputs_model.model_fields.keys())
-    if not (len(schema_fields) == len(step.outputs) == len(outputs)):
-        return outputs
-
-    step_names = list(step.outputs.keys())
-    remapped: dict[str, Any] = {}
-    # Lengths were verified equal just above, so strict= documents that.
-    for schema_name, step_name in zip(schema_fields, step_names, strict=True):
-        if schema_name not in outputs:
-            # Doesn't line up with what the module actually returned --
-            # bail out and let the caller's own missing-outputs check
-            # produce a clear error instead of silently misremapping.
-            return outputs
-        remapped[step_name] = outputs[schema_name]
-    return remapped
-
-
 def _relocate_artifact(
     artifact: Any,
     output_name: str,
@@ -484,8 +424,8 @@ def _write_output_meta(step: Step, registry: ArtifactRegistry, run_ctx: RunConte
     requirement for successful step outputs -- error artifacts already
     get this from :mod:`bat.engine.errors`.
     """
-    for output_name in step.outputs:
-        storage.write_meta(run_ctx.run_dir, registry.get(output_name))
+    for artifact_name in step.outputs.values():
+        storage.write_meta(run_ctx.run_dir, registry.get(artifact_name))
 
 
 def _execute_step(
@@ -525,8 +465,8 @@ def _execute_step(
     step_logger = run_ctx.logger.getChild(f"step.{step.id}")
     try:
         inputs = {
-            input_name: registry.get(ref.artifact)
-            for input_name, ref in step.inputs.items()
+            input_name: registry.get(artifact_name)
+            for input_name, artifact_name in step.inputs.items()
         }
 
         module = plugin_registry.get(step.module)
@@ -543,19 +483,22 @@ def _execute_step(
         )
 
         step_logger.info("running step %r (module=%s)", step.id, step.module)
-        outputs: dict[str, Any] = module.run(inputs, step.params, context)
-        outputs = _remap_outputs_to_step_names(step, module, outputs)
+        raw_outputs: dict[str, Any] = module.run(inputs, step.params, context)
 
-        missing = [name for name in step.outputs if name not in outputs]
+        missing = [
+            module_field
+            for module_field in step.outputs
+            if module_field not in raw_outputs
+        ]
         if missing:
             raise ExecutorError(
                 f"step {step.id!r} declared outputs {missing!r} but its "
-                f"module.run() did not produce them (got {list(outputs)!r})"
+                f"module.run() did not produce them (got {list(raw_outputs)!r})"
             )
 
-        for output_name in step.outputs:
+        for module_field, artifact_name in step.outputs.items():
             artifact = _relocate_artifact(
-                outputs[output_name], output_name, step, workflow_name, run_ctx
+                raw_outputs[module_field], artifact_name, step, workflow_name, run_ctx
             )
             registry.register(artifact)
 

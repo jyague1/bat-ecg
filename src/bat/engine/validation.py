@@ -222,10 +222,13 @@ def _check_structure(data: dict[str, Any]) -> list[str]:
                     f"list, got {type(step_depends_on).__name__}"
                 )
 
-            # Artifact names declared in outputs must be unique.
+            # outputs maps a module output field name -> the chosen artifact
+            # name; artifact names (the values) must be unique.
             outputs = step.get("outputs") or {}
             if isinstance(outputs, dict):
-                for artifact_name in outputs:
+                for artifact_name in outputs.values():
+                    if not isinstance(artifact_name, str):
+                        continue
                     if artifact_name in seen_artifact_names:
                         errors.append(
                             f"{wf_path}.steps.{step_label}.outputs: "

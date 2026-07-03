@@ -347,7 +347,7 @@ def _build_provenance(
             # A step only "has" its declared outputs in provenance if it
             # actually completed successfully and produced them.
             outputs = (
-                list(step.outputs.keys())
+                list(step.outputs.values())
                 if step_outcome.status == "success"
                 else []
             )
@@ -359,7 +359,7 @@ def _build_provenance(
                     module_version=module_versions.get(namespace),
                     started_at=step_outcome.started_at or started_at,
                     finished_at=step_outcome.finished_at,
-                    inputs=[ref.artifact for ref in step.inputs.values()],
+                    inputs=list(step.inputs.values()),
                     outputs=outputs,
                     params=dict(step.params),
                 )

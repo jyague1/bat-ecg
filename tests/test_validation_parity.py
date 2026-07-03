@@ -45,9 +45,7 @@ workflows:
         name: Step one
         module: core.wfdb.read
         outputs:
-          out1:
-            type: signal
-            format: wfdb
+          signal: out1
 """,
     "two_workflows_with_deps": """\
 version: "0.1"
@@ -58,9 +56,7 @@ workflows:
         name: One
         module: core.wfdb.read
         outputs:
-          art1:
-            type: signal
-            format: wfdb
+          signal: art1
   - id: b
     depends_on: [a]
     steps:
@@ -69,12 +65,9 @@ workflows:
         module: core.wfdb.write
         depends_on: []
         inputs:
-          signal:
-            artifact: art1
+          signal: art1
         outputs:
-          art2:
-            type: signal
-            format: wfdb
+          exported_signal: art2
 """,
 }
 
@@ -124,16 +117,12 @@ workflows:
         name: One
         module: core.wfdb.read
         outputs:
-          shared:
-            type: signal
-            format: wfdb
+          signal: shared
       - id: s2
         name: Two
         module: core.wfdb.read
         outputs:
-          shared:
-            type: signal
-            format: wfdb
+          signal: shared
 """,
     "duplicate_workflow_ids": """\
 version: "0.1"
@@ -247,9 +236,7 @@ workflows:
         params:
           path: "data/{{ undefined_var }}"
         outputs:
-          out1:
-            type: signal
-            format: wfdb
+          signal: out1
 """
     path = _write(tmp_path, content)
 

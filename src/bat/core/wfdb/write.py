@@ -21,10 +21,10 @@ from bat.plugins.schema import InputField, ModuleSchema, OutputField
 
 #: The module's own schema output field name. The on-disk WFDB record
 #: written inside the destination directory is named after this constant
-#: (not the step's declared output name -- the module has no way to know
-#: that from inside ``run()``); the engine's executor remaps the returned
-#: ``Artifact.name`` to the step-declared name after ``run()`` returns (see
-#: ``bat.engine.executor._remap_outputs_to_step_names``).
+#: (not the step's chosen artifact name -- the module has no way to know
+#: that from inside ``run()``); the step's ``outputs`` maps this key to
+#: the chosen artifact name, and the engine's executor relocates/renames
+#: accordingly after ``run()`` returns.
 _OUTPUT_KEY = "exported_signal"
 
 #: The fixed record name ``core.wfdb.read`` writes its output under (see

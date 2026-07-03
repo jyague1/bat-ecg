@@ -36,12 +36,9 @@ workflows:
         name: Export signal
         module: core.wfdb.write
         inputs:
-          signal:
-            artifact: raw_signal
+          signal: raw_signal
         outputs:
-          exported_signal:
-            type: signal
-            format: wfdb
+          exported_signal: exported_signal
 ```
 
 An imported file (`workflows/preprocess.yaml`) might look like:
@@ -59,9 +56,7 @@ workflows:
         params:
           path: "data/{{ record }}"
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
 ```
 
 ## Merge rules

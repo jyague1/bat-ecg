@@ -7,13 +7,12 @@ filters channels, a missing file raises a descriptive error, the module's
 ``citations: none`` passes discovery's interface enforcement, and the
 module is discoverable as ``core.wfdb.read`` via the plugin system.
 
-Also covers the executor-level fix (CARD-019's "known architectural
-issue"): a step can declare an output name (e.g. ``raw_signal``) that
-differs from the module's own fixed schema output field name (``signal``);
-:func:`bat.engine.executor._remap_outputs_to_step_names` must remap the
-returned artifact to the step-declared name. That is exercised end-to-end
-here with a real ``Protocol``/``Workflow``/``Step``, a real plugin registry
-(via :func:`discover_plugins`), and a real ``RunContext``.
+Also covers binding a step's chosen artifact name to a module's own fixed
+schema output field name (e.g. a step's ``outputs: {signal: raw_signal}``
+binds ``core.wfdb.read``'s ``signal`` output field to the artifact name
+``raw_signal``), exercised end-to-end here with a real
+``Protocol``/``Workflow``/``Step``, a real plugin registry (via
+:func:`discover_plugins`), and a real ``RunContext``.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from bat.artifacts.registry import ArtifactRegistry
 from bat.core.wfdb import read as wfdb_read
 from bat.engine.executor import execute_protocol
 from bat.engine.run import create_run
-from bat.engine.schema import ArtifactDeclaration, Protocol, Step, Workflow
+from bat.engine.schema import Protocol, Step, Workflow
 from bat.plugins.discovery import discover_plugins
 from bat.plugins.interface import BATContext
 
@@ -145,17 +144,17 @@ def test_module_discoverable_as_core_wfdb_read():
 
 
 # --------------------------------------------------------------------------
-# End-to-end: executor output-name remap (the CARD-019 architectural fix)
+# End-to-end: step-chosen artifact name differs from the module's own field
 # --------------------------------------------------------------------------
 
 
 def test_end_to_end_step_declared_output_name_differs_from_schema_field(
     wfdb_record_path, tmp_path
 ):
-    """A step declares ``raw_signal`` as its output, but the module's own
-    schema always returns a dict keyed ``"signal"``. The executor must
-    remap the returned artifact to the step-declared name (``raw_signal``)
-    -- this is the exact scenario the CARD-019 executor fix targets."""
+    """A step binds the module's own output field (``signal``) to a
+    different, chosen artifact name (``raw_signal``). The executor
+    registers the artifact under that chosen name, not the module's own
+    field name."""
     protocol_path = tmp_path / "protocol.yaml"
     protocol_path.write_text("version: '0.1'\n")
 
@@ -164,7 +163,7 @@ def test_end_to_end_step_declared_output_name_differs_from_schema_field(
         name="load_record",
         module="core.wfdb.read",
         params={"path": wfdb_record_path},
-        outputs={"raw_signal": ArtifactDeclaration(type="signal", format="wfdb")},
+        outputs={"signal": "raw_signal"},
     )
     protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
 

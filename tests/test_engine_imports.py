@@ -113,9 +113,7 @@ workflows:
         name: Load WFDB record
         module: core.wfdb.read
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
 """,
     )
 
@@ -286,9 +284,7 @@ workflows:
         name: Load WFDB record
         module: core.wfdb.read
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
 """,
     )
 
@@ -311,12 +307,9 @@ workflows:
         name: Export signal
         module: core.wfdb.write
         inputs:
-          signal:
-            artifact: raw_signal
+          signal: raw_signal
         outputs:
-          exported_signal:
-            type: signal
-            format: wfdb
+          exported_signal: exported_signal
 """
     protocol_path = write(tmp_path, "protocol.yaml", protocol_yaml)
 

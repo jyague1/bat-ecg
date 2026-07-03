@@ -22,20 +22,15 @@ workflows:
         params:
           path: "data/{{ record }}"
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
       - id: filter_record
         name: Filter record
         module: core.wfdb.filter
         depends_on: [load_record]
         inputs:
-          signal:
-            artifact: raw_signal
+          signal: raw_signal
         outputs:
-          filtered_signal:
-            type: signal
-            format: wfdb
+          signal: filtered_signal
 """
 
 
@@ -159,16 +154,12 @@ workflows:
         name: Load WFDB record
         module: core.wfdb.read
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
       - id: load_record_again
         name: Load WFDB record again
         module: core.wfdb.read
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
 """
     path = write(tmp_path, "protocol.yaml", protocol)
     errors = validate_protocol(path)
