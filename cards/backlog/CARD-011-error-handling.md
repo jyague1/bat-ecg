@@ -30,9 +30,7 @@ steps:
     params:
       path: "data/{{ record }}"
     outputs:
-      raw_signal:
-        type: signal
-        format: wfdb
+      signal: raw_signal
     on_error:
       action: continue
       output:

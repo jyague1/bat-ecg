@@ -73,7 +73,7 @@ def check_step_outputs(
     """
     artifacts_dir = run_ctx.artifacts_dir.resolve()
 
-    for artifact_name in step.outputs:
+    for artifact_name in step.outputs.values():
         if not registry.exists(artifact_name):
             raise ArtifactViolationError(
                 f"step {step.id!r} declared output {artifact_name!r} but no "

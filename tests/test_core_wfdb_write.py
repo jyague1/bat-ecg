@@ -30,7 +30,7 @@ from bat.core.wfdb import read as wfdb_read
 from bat.core.wfdb import write as wfdb_write
 from bat.engine.executor import execute_protocol
 from bat.engine.run import create_run
-from bat.engine.schema import ArtifactDeclaration, ArtifactRef, Protocol, Step, Workflow
+from bat.engine.schema import Protocol, Step, Workflow
 from bat.plugins.discovery import discover_plugins
 from bat.plugins.interface import BATContext
 
@@ -203,15 +203,15 @@ def test_end_to_end_read_then_write_chain(wfdb_record_path, tmp_path):
         name="load_record",
         module="core.wfdb.read",
         params={"path": wfdb_record_path},
-        outputs={"raw_signal": ArtifactDeclaration(type="signal", format="wfdb")},
+        outputs={"signal": "raw_signal"},
     )
     write_step = Step(
         id="export_record",
         name="export_record",
         module="core.wfdb.write",
         params={"path": "artifacts/exported"},
-        inputs={"signal": ArtifactRef(artifact="raw_signal")},
-        outputs={"exported_signal": ArtifactDeclaration(type="signal", format="wfdb")},
+        inputs={"signal": "raw_signal"},
+        outputs={"exported_signal": "exported_signal"},
         depends_on=["load_record"],
     )
     protocol = Protocol(

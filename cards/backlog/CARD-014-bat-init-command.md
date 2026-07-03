@@ -45,9 +45,7 @@ workflows:
         params:
           path: "data/{{ record }}"
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
 ```
 
 ## Behavior

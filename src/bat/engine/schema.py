@@ -20,14 +20,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from bat.artifacts.types import ArtifactType
 
 
-class ArtifactRef(BaseModel):
-    """A reference to a previously-declared artifact, used as a step input."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    artifact: str
-
-
 class ArtifactDeclaration(BaseModel):
     """Declaration of an artifact produced by a step's ``outputs``."""
 
@@ -55,9 +47,14 @@ class Step(BaseModel):
     name: str
     module: str
     depends_on: list[str] = Field(default_factory=list)
-    inputs: dict[str, ArtifactRef] = Field(default_factory=dict)
+    # Both keyed by the *module's own* Inputs/Outputs field name (see
+    # bat.plugins.schema.ModuleSchema): inputs map it to the artifact name
+    # being consumed, outputs map it to the artifact name being produced.
+    # Type/format for a real module output come from the module's own
+    # OutputField declaration, not repeated here.
+    inputs: dict[str, str] = Field(default_factory=dict)
     params: dict[str, Any] = Field(default_factory=dict)
-    outputs: dict[str, ArtifactDeclaration] = Field(default_factory=dict)
+    outputs: dict[str, str] = Field(default_factory=dict)
     on_error: OnError | None = None
 
 
@@ -145,7 +142,7 @@ class Protocol(BaseModel):
         seen: dict[str, tuple[str, str]] = {}
         for workflow in self.workflows:
             for step in workflow.steps:
-                for artifact_name in step.outputs:
+                for artifact_name in step.outputs.values():
                     if artifact_name in seen:
                         prev_wf, prev_step = seen[artifact_name]
                         raise ValueError(
@@ -171,7 +168,7 @@ class Protocol(BaseModel):
 
     @model_validator(mode="after")
     def _validate_artifact_inputs(self) -> Protocol:
-        """Every ``inputs.*.artifact`` reference must name a declared artifact.
+        """Every ``inputs`` value must name a declared artifact.
 
         Full dependency-ordering resolution (i.e. checking that the artifact
         is produced by a step that actually runs *before* the consuming step
@@ -182,18 +179,18 @@ class Protocol(BaseModel):
         declared_artifacts: set[str] = set()
         for workflow in self.workflows:
             for step in workflow.steps:
-                declared_artifacts.update(step.outputs.keys())
+                declared_artifacts.update(step.outputs.values())
                 if step.on_error is not None:
                     declared_artifacts.update(step.on_error.output.keys())
 
         for workflow in self.workflows:
             for step in workflow.steps:
-                for input_name, artifact_ref in step.inputs.items():
-                    if artifact_ref.artifact not in declared_artifacts:
+                for input_name, artifact_name in step.inputs.items():
+                    if artifact_name not in declared_artifacts:
                         raise ValueError(
                             f"workflows.{workflow.id}.steps.{step.id}."
                             f"inputs.{input_name}: unknown artifact "
-                            f"reference {artifact_ref.artifact!r} (no step "
+                            f"reference {artifact_name!r} (no step "
                             "declares this artifact as an output)"
                         )
         return self

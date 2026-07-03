@@ -94,5 +94,4 @@ def test_init_generated_protocol_loads_via_engine_loader():
         assert step.id == "load_record"
         assert step.module == "core.wfdb.read"
         assert step.params["path"] == "data/100"
-        assert step.outputs["raw_signal"].type == "signal"
-        assert step.outputs["raw_signal"].format == "wfdb"
+        assert step.outputs["signal"] == "raw_signal"

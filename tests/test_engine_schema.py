@@ -29,9 +29,7 @@ workflows:
         params:
           path: "data/{{ record }}"
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
 
   - id: features
     depends_on:
@@ -41,14 +39,11 @@ workflows:
         name: Export cleaned signal
         module: core.wfdb.write
         inputs:
-          signal:
-            artifact: raw_signal
+          signal: raw_signal
         params:
           path: "{{ record }}"
         outputs:
-          exported_signal:
-            type: signal
-            format: wfdb
+          exported_signal: exported_signal
 """
 
 
@@ -78,13 +73,12 @@ def test_valid_protocol_parses_correctly(tmp_path):
     load_step = preprocess.steps[0]
     assert load_step.id == "load_record"
     assert load_step.module == "core.wfdb.read"
-    assert load_step.outputs["raw_signal"].type == "signal"
-    assert load_step.outputs["raw_signal"].format == "wfdb"
+    assert load_step.outputs["signal"] == "raw_signal"
 
     features = workflow_by_id(protocol, "features")
     assert features.depends_on == ["preprocess"]
     export_step = features.steps[0]
-    assert export_step.inputs["signal"].artifact == "raw_signal"
+    assert export_step.inputs["signal"] == "raw_signal"
 
 
 def test_load_protocol_missing_file_raises(tmp_path):
@@ -143,9 +137,7 @@ def test_duplicate_step_ids_raise_validation_error():
                         "id": "load_record",
                         "name": "Load WFDB record",
                         "module": "core.wfdb.read",
-                        "outputs": {
-                            "raw_signal": {"type": "signal", "format": "wfdb"}
-                        },
+                        "outputs": {"signal": "raw_signal"},
                     },
                 ],
             },
@@ -156,9 +148,7 @@ def test_duplicate_step_ids_raise_validation_error():
                         "id": "load_record",  # duplicate across workflows
                         "name": "Export cleaned signal",
                         "module": "core.wfdb.write",
-                        "outputs": {
-                            "exported_signal": {"type": "signal", "format": "wfdb"}
-                        },
+                        "outputs": {"exported_signal": "exported_signal"},
                     },
                 ],
             },
@@ -180,20 +170,13 @@ def test_duplicate_artifact_names_raise_validation_error():
                         "id": "load_record",
                         "name": "Load WFDB record",
                         "module": "core.wfdb.read",
-                        "outputs": {
-                            "raw_signal": {"type": "signal", "format": "wfdb"}
-                        },
+                        "outputs": {"signal": "raw_signal"},
                     },
                     {
                         "id": "load_record_again",
                         "name": "Load WFDB record again",
                         "module": "core.wfdb.read",
-                        "outputs": {
-                            "raw_signal": {  # duplicate artifact name
-                                "type": "signal",
-                                "format": "wfdb",
-                            }
-                        },
+                        "outputs": {"signal": "raw_signal"},  # duplicate artifact name
                     },
                 ],
             }
@@ -259,9 +242,7 @@ def test_unresolved_artifact_input_raises_validation_error():
                         "id": "export_signal",
                         "name": "Export cleaned signal",
                         "module": "core.wfdb.write",
-                        "inputs": {
-                            "signal": {"artifact": "never_declared"},
-                        },
+                        "inputs": {"signal": "never_declared"},
                     }
                 ],
             }
@@ -285,6 +266,9 @@ def test_workflow_requires_at_least_one_step():
 
 
 def test_invalid_artifact_type_raises_validation_error():
+    # step.outputs is just module-field -> artifact-name strings now (no
+    # type/format to validate there); on_error.output is the one place an
+    # ArtifactDeclaration's `type` is still checked against the vocabulary.
     data = {
         "version": "0.1",
         "workflows": [
@@ -295,11 +279,14 @@ def test_invalid_artifact_type_raises_validation_error():
                         "id": "load_record",
                         "name": "Load WFDB record",
                         "module": "core.wfdb.read",
-                        "outputs": {
-                            "raw_signal": {
-                                "type": "not_a_real_type",
-                                "format": "wfdb",
-                            }
+                        "on_error": {
+                            "action": "continue",
+                            "output": {
+                                "load_failure": {
+                                    "type": "not_a_real_type",
+                                    "format": "yaml",
+                                }
+                            },
                         },
                     }
                 ],

@@ -45,7 +45,7 @@ def make_run_ctx(protocol_path, run_name="test-run"):
 def make_step(
     step_id: str = "step",
     module: str = "test.module",
-    outputs: dict[str, ArtifactDeclaration] | None = None,
+    outputs: dict[str, str] | None = None,
     depends_on: list[str] | None = None,
     on_error: OnError | None = None,
 ) -> Step:
@@ -88,7 +88,7 @@ def write_placeholder(path) -> None:
 def test_all_outputs_registered_and_inside_artifacts_dir_passes(protocol_path):
     run_ctx = make_run_ctx(protocol_path)
     registry = ArtifactRegistry()
-    step = make_step(outputs={"out": out_decl()})
+    step = make_step(outputs={"out": "out"})
 
     path = artifact_dir(run_ctx.run_dir, "out")
     write_placeholder(path)
@@ -101,7 +101,7 @@ def test_all_outputs_registered_and_inside_artifacts_dir_passes(protocol_path):
 def test_output_registered_but_path_outside_artifacts_dir_raises(protocol_path, tmp_path):
     run_ctx = make_run_ctx(protocol_path)
     registry = ArtifactRegistry()
-    step = make_step(outputs={"out": out_decl()})
+    step = make_step(outputs={"out": "out"})
 
     outside_dir = tmp_path / "outside" / "out"
     write_placeholder(outside_dir)
@@ -114,7 +114,7 @@ def test_output_registered_but_path_outside_artifacts_dir_raises(protocol_path, 
 def test_output_not_registered_raises(protocol_path):
     run_ctx = make_run_ctx(protocol_path)
     registry = ArtifactRegistry()
-    step = make_step(outputs={"out": out_decl()})
+    step = make_step(outputs={"out": "out"})
 
     # Nothing registered at all.
     with pytest.raises(ArtifactViolationError, match="out"):
@@ -124,7 +124,7 @@ def test_output_not_registered_raises(protocol_path):
 def test_output_registered_but_file_missing_on_disk_raises(protocol_path):
     run_ctx = make_run_ctx(protocol_path)
     registry = ArtifactRegistry()
-    step = make_step(outputs={"out": out_decl()})
+    step = make_step(outputs={"out": "out"})
 
     # Path is inside artifacts_dir and correctly named, but nothing was
     # ever written there.
@@ -139,7 +139,7 @@ def test_output_registered_as_direct_file_path_passes(protocol_path):
     """``path`` may also point directly at a single file, not a directory."""
     run_ctx = make_run_ctx(protocol_path)
     registry = ArtifactRegistry()
-    step = make_step(outputs={"out": out_decl()})
+    step = make_step(outputs={"out": "out"})
 
     path = run_ctx.artifacts_dir / "out.yaml"
     path.write_text("x")
@@ -151,7 +151,7 @@ def test_output_registered_as_direct_file_path_passes(protocol_path):
 def test_multiple_outputs_all_checked(protocol_path):
     run_ctx = make_run_ctx(protocol_path)
     registry = ArtifactRegistry()
-    step = make_step(outputs={"first": out_decl(), "second": out_decl()})
+    step = make_step(outputs={"first": "first", "second": "second"})
 
     first_path = artifact_dir(run_ctx.run_dir, "first")
     write_placeholder(first_path)
@@ -189,7 +189,7 @@ def test_execute_protocol_runs_check_after_successful_step(protocol_path):
             "out": make_artifact("out", artifact_dir(run_ctx.run_dir, "out"))
         }
 
-    step = make_step("bad_step", module="test.bad", outputs={"out": out_decl()})
+    step = make_step("bad_step", module="test.bad", outputs={"out": "out"})
     protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
     plugin_registry = {"test.bad": SimpleNamespace(run=run)}
 
@@ -210,7 +210,7 @@ def test_execute_protocol_violation_outside_artifacts_dir_stops_run(
         write_placeholder(outside_path)
         return {"out": make_artifact("out", outside_path)}
 
-    step = make_step("escaping_step", module="test.escape", outputs={"out": out_decl()})
+    step = make_step("escaping_step", module="test.escape", outputs={"out": "out"})
     protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
     plugin_registry = {"test.escape": SimpleNamespace(run=run)}
 
@@ -238,7 +238,7 @@ def test_execute_protocol_violation_respects_on_error_continue(protocol_path):
         make_step(
             "bad_step",
             module="test.bad",
-            outputs={"out": out_decl()},
+            outputs={"out": "out"},
             on_error=OnError(
                 action="continue",
                 output={"bad_step_error": out_decl(artifact_type="error")},

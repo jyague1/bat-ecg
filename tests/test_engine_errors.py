@@ -21,7 +21,6 @@ from bat.engine.executor import execute_protocol
 from bat.engine.run import create_run
 from bat.engine.schema import (
     ArtifactDeclaration,
-    ArtifactRef,
     OnError,
     Protocol,
     Step,
@@ -48,8 +47,8 @@ def make_step(
     step_id: str,
     module: str = "test.echo",
     depends_on: list[str] | None = None,
-    inputs: dict[str, ArtifactRef] | None = None,
-    outputs: dict[str, ArtifactDeclaration] | None = None,
+    inputs: dict[str, str] | None = None,
+    outputs: dict[str, str] | None = None,
     on_error: OnError | None = None,
 ) -> Step:
     return Step(
@@ -295,7 +294,7 @@ def test_downstream_steps_of_failed_continued_step_still_execute(protocol_path):
         make_step(
             "load_record",
             module="test.load",
-            outputs={"raw_signal": out_decl()},
+            outputs={"raw_signal": "raw_signal"},
             on_error=OnError(
                 action="continue",
                 output={"load_failure": out_decl(artifact_type="error")},

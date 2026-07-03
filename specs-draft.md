@@ -188,9 +188,7 @@ workflows:
         params:
           path: "data/{{ record }}"
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
 
   - id: features
     depends_on:
@@ -200,14 +198,11 @@ workflows:
         name: Export cleaned signal
         module: core.wfdb.write
         inputs:
-          signal:
-            artifact: raw_signal
+          signal: raw_signal
         params:
           path: "{{ record }}"
         outputs:
-          exported_signal:
-            type: signal
-            format: wfdb
+          exported_signal: exported_signal
 ```
 
 ---
@@ -292,18 +287,24 @@ When multiple steps are ready (no unresolved dependencies), YAML order is used a
 
 Parallel step execution is deferred.
 
-Step output declarations must use verbose form only.
+A step's `outputs` maps the module's own output field name to the artifact
+name it should be registered as. `type`/`format` are not declared here --
+they come from the module's own schema (see `bat.plugins.schema.OutputField`).
 
 Example:
 
 ```yaml
 outputs:
-  filtered_signal:
-    type: signal
-    format: wfdb
+  signal: filtered_signal
 ```
 
-Shorthand output declarations are not supported.
+`inputs` follows the same shape (module's own input field name -> the
+artifact name it should be bound to):
+
+```yaml
+inputs:
+  signal: raw_signal
+```
 
 ---
 

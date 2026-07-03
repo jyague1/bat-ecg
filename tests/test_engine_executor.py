@@ -14,7 +14,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
 
 from bat.artifacts.model import Artifact
 from bat.artifacts.registry import ArtifactRegistry
@@ -23,20 +22,17 @@ from bat.engine.errors import StepExecutionError
 from bat.engine.executor import (
     CycleError,
     ExecutorError,
-    _remap_outputs_to_step_names,
     execute_protocol,
     topological_sort,
 )
 from bat.engine.run import create_run
 from bat.engine.schema import (
     ArtifactDeclaration,
-    ArtifactRef,
     OnError,
     Protocol,
     Step,
     Workflow,
 )
-from bat.plugins.schema import ModuleSchema, OutputField
 
 # --------------------------------------------------------------------------
 # Fixtures / helpers
@@ -58,8 +54,8 @@ def make_step(
     step_id: str,
     module: str = "test.echo",
     depends_on: list[str] | None = None,
-    inputs: dict[str, ArtifactRef] | None = None,
-    outputs: dict[str, ArtifactDeclaration] | None = None,
+    inputs: dict[str, str] | None = None,
+    outputs: dict[str, str] | None = None,
     on_error: OnError | None = None,
     params: dict[str, Any] | None = None,
 ) -> Step:
@@ -208,20 +204,20 @@ def test_execute_protocol_linear_chain_executes_in_order(protocol_path):
         return SimpleNamespace(run=run)
 
     steps = [
-        make_step("load_record", module="test.load", outputs={"raw_signal": out_decl()}),
+        make_step("load_record", module="test.load", outputs={"raw_signal": "raw_signal"}),
         make_step(
             "filter_signal",
             module="test.filter",
             depends_on=["load_record"],
-            inputs={"signal": ArtifactRef(artifact="raw_signal")},
-            outputs={"filtered_signal": out_decl()},
+            inputs={"signal": "raw_signal"},
+            outputs={"filtered_signal": "filtered_signal"},
         ),
         make_step(
             "detect_rpeaks",
             module="test.detect",
             depends_on=["filter_signal"],
-            inputs={"signal": ArtifactRef(artifact="filtered_signal")},
-            outputs={"rpeaks": out_decl()},
+            inputs={"signal": "filtered_signal"},
+            outputs={"rpeaks": "rpeaks"},
         ),
     ]
     protocol = Protocol(
@@ -266,30 +262,30 @@ def test_execute_protocol_branching_dag_uses_yaml_order_tiebreaker(protocol_path
         return SimpleNamespace(run=run)
 
     steps = [
-        make_step("load_record", module="test.load", outputs={"raw_signal": out_decl()}),
+        make_step("load_record", module="test.load", outputs={"raw_signal": "raw_signal"}),
         make_step(
             "filter_ecg",
             module="test.filter_ecg",
             depends_on=["load_record"],
-            inputs={"signal": ArtifactRef(artifact="raw_signal")},
-            outputs={"ecg_filtered": out_decl()},
+            inputs={"signal": "raw_signal"},
+            outputs={"ecg_filtered": "ecg_filtered"},
         ),
         make_step(
             "filter_eeg",
             module="test.filter_eeg",
             depends_on=["load_record"],
-            inputs={"signal": ArtifactRef(artifact="raw_signal")},
-            outputs={"eeg_filtered": out_decl()},
+            inputs={"signal": "raw_signal"},
+            outputs={"eeg_filtered": "eeg_filtered"},
         ),
         make_step(
             "merge",
             module="test.merge",
             depends_on=["filter_ecg", "filter_eeg"],
             inputs={
-                "ecg": ArtifactRef(artifact="ecg_filtered"),
-                "eeg": ArtifactRef(artifact="eeg_filtered"),
+                "ecg": "ecg_filtered",
+                "eeg": "eeg_filtered",
             },
-            outputs={"merged": out_decl()},
+            outputs={"merged": "merged"},
         ),
     ]
     protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=steps)])
@@ -338,8 +334,8 @@ def test_execute_protocol_workflow_level_ordering(protocol_path):
                     make_step(
                         "make_report",
                         module="test.report",
-                        inputs={"feat": ArtifactRef(artifact="features_out")},
-                        outputs={"report_out": out_decl()},
+                        inputs={"feat": "features_out"},
+                        outputs={"report_out": "report_out"},
                     )
                 ],
             ),
@@ -347,7 +343,7 @@ def test_execute_protocol_workflow_level_ordering(protocol_path):
                 id="preprocess",
                 steps=[
                     make_step(
-                        "load", module="test.load", outputs={"raw": out_decl()}
+                        "load", module="test.load", outputs={"raw": "raw"}
                     )
                 ],
             ),
@@ -358,8 +354,8 @@ def test_execute_protocol_workflow_level_ordering(protocol_path):
                     make_step(
                         "extract",
                         module="test.extract",
-                        inputs={"raw": ArtifactRef(artifact="raw")},
-                        outputs={"features_out": out_decl()},
+                        inputs={"raw": "raw"},
+                        outputs={"features_out": "features_out"},
                     )
                 ],
             ),
@@ -424,7 +420,7 @@ def test_step_inputs_resolved_from_registry_before_execution(protocol_path):
     registry = ArtifactRegistry()
 
     load_step = make_step(
-        "load_record", module="test.load", outputs={"raw_signal": out_decl()}
+        "load_record", module="test.load", outputs={"raw_signal": "raw_signal"}
     )
     load_module = RecordingModule(output_names=["raw_signal"])
 
@@ -433,8 +429,8 @@ def test_step_inputs_resolved_from_registry_before_execution(protocol_path):
         "filter_signal",
         module="test.filter",
         depends_on=["load_record"],
-        inputs={"signal": ArtifactRef(artifact="raw_signal")},
-        outputs={"filtered_signal": out_decl()},
+        inputs={"signal": "raw_signal"},
+        outputs={"filtered_signal": "filtered_signal"},
     )
     protocol = Protocol(
         version="0.1", workflows=[Workflow(id="main", steps=[load_step, filter_step])]
@@ -458,7 +454,7 @@ def test_missing_module_in_plugin_registry_raises_clear_error(protocol_path):
     run_ctx = make_run_ctx(protocol_path)
     registry = ArtifactRegistry()
 
-    step = make_step("orphan", module="does.not.exist", outputs={"out": out_decl()})
+    step = make_step("orphan", module="does.not.exist", outputs={"out": "out"})
     protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
 
     # No on_error is declared, so handle_step_error reports "stop" and the
@@ -480,7 +476,7 @@ def test_step_missing_declared_output_raises_validation_error(protocol_path):
     # Module returns nothing, but the step declares an output.
     module = RecordingModule(output_names=[])
     step = make_step(
-        "no_outputs", module="test.no_outputs", outputs={"expected_artifact": out_decl()}
+        "no_outputs", module="test.no_outputs", outputs={"expected_artifact": "expected_artifact"}
     )
     protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
     plugin_registry = {"test.no_outputs": module}
@@ -493,75 +489,29 @@ def test_step_missing_declared_output_raises_validation_error(protocol_path):
 
 
 # --------------------------------------------------------------------------
-# _remap_outputs_to_step_names (CARD-019)
+# execute_protocol: module field name vs. chosen artifact name
 # --------------------------------------------------------------------------
 
 
-class _FixedOutputSchema(ModuleSchema):
-    """A minimal schema whose Outputs always has a single field, "signal"
-    -- mirrors core.wfdb.read: the module can only return {"signal": ...},
-    regardless of what name a step gives that output."""
+def test_step_output_field_name_can_differ_from_artifact_name(protocol_path):
+    """A step's outputs binds the module's own output field name to a
+    distinct, chosen artifact name -- replacing the old positional-remap
+    mechanism (CARD-019's now-removed ``_remap_outputs_to_step_names``)
+    with an explicit binding.
+    """
+    run_ctx = make_run_ctx(protocol_path)
+    registry = ArtifactRegistry()
 
-    class Meta:
-        name = "test.fixed_output"
-        description = "test module"
-        citations = "none"
+    module = RecordingModule(output_names=["signal"])
+    step = make_step("load_record", module="test.load", outputs={"signal": "raw_signal"})
+    protocol = Protocol(version="0.1", workflows=[Workflow(id="main", steps=[step])])
+    plugin_registry = {"test.load": module}
 
-    class Outputs(BaseModel):
-        signal: OutputField(artifact_type="signal", artifact_format="wfdb")
+    execute_protocol(protocol, registry, plugin_registry, run_ctx)
 
-
-def _fixed_output_module():
-    return SimpleNamespace(schema=_FixedOutputSchema)
-
-
-def test_remap_is_noop_when_returned_keys_already_match_step_outputs():
-    step = make_step("s", outputs={"signal": out_decl()})
-    outputs = {"signal": Artifact(name="signal", artifact_type="signal", format="wfdb", path="p")}
-
-    result = _remap_outputs_to_step_names(step, _fixed_output_module(), outputs)
-
-    assert result is outputs
-
-
-def test_remap_renames_single_output_positionally_when_keys_differ():
-    step = make_step("s", outputs={"raw_signal": out_decl(artifact_type="signal", fmt="wfdb")})
-    artifact = Artifact(name="signal", artifact_type="signal", format="wfdb", path="p")
-    outputs = {"signal": artifact}
-
-    result = _remap_outputs_to_step_names(step, _fixed_output_module(), outputs)
-
-    # Only the dict *key* is remapped here; the artifact's own .name is
-    # left untouched by this function -- _relocate_artifact (called by
-    # _execute_step for every declared output, remapped or not) is what
-    # authoritatively sets .name to the step-declared name afterward.
-    assert set(result.keys()) == {"raw_signal"}
-    assert result["raw_signal"] is artifact
-    assert result["raw_signal"].name == "signal"
-
-
-def test_remap_skipped_when_module_has_no_schema():
-    step = make_step("s", outputs={"raw_signal": out_decl()})
-    outputs = {"signal": Artifact(name="signal", artifact_type="metadata", format="yaml", path="p")}
-    module = SimpleNamespace()  # no `schema` attribute at all
-
-    result = _remap_outputs_to_step_names(step, module, outputs)
-
-    assert result is outputs
-
-
-def test_remap_skipped_when_output_counts_differ():
-    # Schema declares 1 output field, but the step declares 2 -- sizes
-    # don't line up, so remapping can't be done safely; left as-is (the
-    # caller's own missing-outputs check will raise a clear error).
-    step = make_step(
-        "s", outputs={"raw_signal": out_decl(), "extra": out_decl()}
-    )
-    outputs = {"signal": Artifact(name="signal", artifact_type="signal", format="wfdb", path="p")}
-
-    result = _remap_outputs_to_step_names(step, _fixed_output_module(), outputs)
-
-    assert result is outputs
+    assert registry.exists("raw_signal")
+    assert not registry.exists("signal")
+    assert registry.get("raw_signal").name == "raw_signal"
 
 
 # --------------------------------------------------------------------------
@@ -642,13 +592,13 @@ def test_records_capture_real_status_and_timings_on_success(protocol_path):
     plugin_registry = {"test.load": load, "test.filter": filt}
 
     steps = [
-        make_step("load", module="test.load", outputs={"raw_signal": out_decl()}),
+        make_step("load", module="test.load", outputs={"raw_signal": "raw_signal"}),
         make_step(
             "filter",
             module="test.filter",
             depends_on=["load"],
-            inputs={"signal": ArtifactRef(artifact="raw_signal")},
-            outputs={"filtered_signal": out_decl()},
+            inputs={"signal": "raw_signal"},
+            outputs={"filtered_signal": "filtered_signal"},
         ),
     ]
     protocol = Protocol(version="0.1", workflows=[Workflow(id="wf", steps=steps)])
@@ -682,7 +632,7 @@ def test_records_mark_downstream_steps_skipped_after_unhandled_failure(protocol_
     registry = ArtifactRegistry()
 
     steps = [
-        make_step("boom", module="test.boom", outputs={"out": out_decl()}),
+        make_step("boom", module="test.boom", outputs={"out": "out"}),
         make_step("after", module="test.after", depends_on=["boom"]),
     ]
     protocol = Protocol(version="0.1", workflows=[Workflow(id="wf", steps=steps)])
@@ -714,7 +664,7 @@ def test_records_mark_handled_failure_as_failed_step_partial_workflow(protocol_p
         make_step(
             "boom",
             module="test.boom",
-            outputs={"out": out_decl()},
+            outputs={"out": "out"},
             on_error=OnError(
                 action="continue",
                 output={"boom_error": out_decl(artifact_type="error")},

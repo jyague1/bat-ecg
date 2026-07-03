@@ -44,25 +44,23 @@ steps:
   - id: load_record
     module: core.wfdb.read
     outputs:
-      raw_signal: ...
+      signal: raw_signal
 
   - id: filter_signal
     depends_on: [load_record]
     module: lab.ecg.filter
     inputs:
-      signal:
-        artifact: raw_signal
+      signal: raw_signal
     outputs:
-      filtered_signal: ...
+      signal: filtered_signal
 
   - id: detect_rpeaks
     depends_on: [filter_signal]
     module: lab.ecg.detect_rpeaks
     inputs:
-      signal:
-        artifact: filtered_signal
+      signal: filtered_signal
     outputs:
-      rpeaks: ...
+      rpeaks: rpeaks
 ```
 
 Execution order: `load_record` → `filter_signal` → `detect_rpeaks`

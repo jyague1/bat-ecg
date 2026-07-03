@@ -32,9 +32,7 @@ workflows:
         params:
           path: "data/{{ record }}"
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
 
   - id: features
     depends_on:
@@ -44,14 +42,11 @@ workflows:
         name: Export cleaned signal
         module: core.wfdb.write
         inputs:
-          signal:
-            artifact: raw_signal
+          signal: raw_signal
         params:
           path: "{{ record }}"
         outputs:
-          exported_signal:
-            type: signal
-            format: wfdb
+          exported_signal: exported_signal
 ```
 
 ## Pydantic schema to implement
@@ -71,17 +66,15 @@ workflows:
 - `name`: str (required)
 - `module`: str (required) — dotted module name e.g. `core.wfdb.read`
 - `depends_on`: list[str] (optional, default empty) — references other step IDs within the same workflow
-- `inputs`: dict[str, ArtifactRef] (optional)
+- `inputs`: dict[str, str] (optional) — module's own input field name -> artifact name it should be bound to
 - `params`: dict[str, Any] (optional)
-- `outputs`: dict[str, ArtifactDeclaration] (optional)
+- `outputs`: dict[str, str] (optional) — module's own output field name -> the (globally unique) artifact name it should be registered as. `type`/`format` come from the module's own `OutputField` declaration, not from the protocol.
 - `on_error`: OnError (optional)
-
-### `ArtifactRef`
-- `artifact`: str — globally unique artifact name declared by a previous step
 
 ### `ArtifactDeclaration`
 - `type`: str — one of: `signal`, `annotations`, `features`, `metadata`, `model`, `report`, `error`
 - `format`: str — e.g. `wfdb`, `parquet`, `yaml`, `html`, `onnx`
+- Used only for `OnError.output` (ad hoc error artifacts have no module field to source type/format from); real module outputs get their type/format from the module's own schema.
 
 ### `OnError`
 - `action`: Literal["stop", "continue"] (default: "stop")
@@ -91,10 +84,10 @@ workflows:
 
 - Workflow IDs must be unique across the entire protocol
 - Step IDs must be unique across the entire protocol (not just within a workflow)
-- Artifact names declared in `outputs` must be unique across the entire protocol
+- Artifact names declared in `outputs` (the dict *values*) must be unique across the entire protocol
 - `depends_on` references in workflows must refer to existing workflow IDs
 - `depends_on` references in steps must refer to existing step IDs within the same workflow
-- `inputs.*.artifact` must reference an artifact name declared in a previous step's outputs (order based on topological sort — full resolution can be deferred; at parse time, check that the name exists somewhere in the protocol)
+- Every `inputs` value must reference an artifact name declared in a previous step's outputs (order based on topological sort — full resolution can be deferred; at parse time, check that the name exists somewhere in the protocol)
 
 ## Parser
 

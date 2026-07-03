@@ -71,12 +71,10 @@ workflows:
         params:
           path: "data/{{ record }}"
         outputs:
-          raw_signal:
-            type: signal
-            format: wfdb
+          signal: raw_signal
 ```
 
-This one-step protocol reads a WFDB record (e.g. from the MIT-BIH Arrhythmia Database) at `data/<record>` using the core `core.wfdb.read` module, and declares its output as a `signal` artifact named `raw_signal`.
+This one-step protocol reads a WFDB record (e.g. from the MIT-BIH Arrhythmia Database) at `data/<record>` using the core `core.wfdb.read` module, and declares its output (the module's own `signal` field) as an artifact named `raw_signal`.
 
 **3. Dry run** (validates the protocol, resolves modules, and prints the execution plan without running anything — no data files needed):
 
@@ -186,10 +184,9 @@ workflows:                           # ordered list of workflows (min. 1)
         module: core.wfdb.read       # dotted plugin module name to invoke
         params:                      # module parameters ({{ var }} substitution applies)
           path: "data/{{ record }}"
-        outputs:                     # artifacts this step produces
-          raw_signal:                # artifact name (globally unique)
-            type: signal             # artifact type (see Artifact types below)
-            format: wfdb             # on-disk format
+        outputs:                     # module output field name -> chosen artifact name
+          signal: raw_signal          # "signal" is core.wfdb.read's own output field;
+                                        # type/format come from the module's own schema
         on_error:                    # optional: what to do if this step fails
           action: continue           # "stop" (default) or "continue"
           output:                    # error artifact(s) to write if action: continue
@@ -204,15 +201,13 @@ workflows:                           # ordered list of workflows (min. 1)
         name: Re-export WFDB record
         module: core.wfdb.write
         depends_on: []                # step-level depends_on (within the same workflow)
-        inputs:                       # artifacts consumed by this step
-          signal:
-            artifact: raw_signal      # references an artifact declared elsewhere in the protocol
+        inputs:                       # module input field name -> referenced artifact name
+          signal: raw_signal          # binds core.wfdb.write's "signal" input to "raw_signal"
         params:
           path: "{{ export_dir }}/{{ record }}"
         outputs:
-          exported_signal:
-            type: signal
-            format: wfdb
+          exported_signal: exported_signal   # module field name (left) and chosen artifact
+                                               # name (right) may differ; here they coincide
 ```
 
 Field reference:
@@ -228,10 +223,10 @@ Field reference:
 - **`steps[].name`** — required human-readable name.
 - **`steps[].module`** — required dotted name of the plugin module to run (see `bat plugins list`).
 - **`steps[].depends_on`** — list of step ids (within the same workflow) that must complete first.
-- **`steps[].inputs`** — mapping of module input name to `{artifact: <name>}`, referencing an artifact declared as some step's output elsewhere in the protocol.
+- **`steps[].inputs`** — mapping of the module's own input field name to the artifact name it should be bound to, referencing an artifact declared as some step's output elsewhere in the protocol.
 - **`steps[].params`** — arbitrary module parameters, validated against the module's own schema; string values may contain `{{ var }}` references.
-- **`steps[].outputs`** — mapping of artifact name to its declared `type` and `format` (see [Artifact types](#artifact-types)). Output declarations must use this verbose form; there is no shorthand.
-- **`steps[].on_error`** — step-level error handling; same shape as workflow-level `on_error` (`action: stop` (default) or `action: continue`, plus `output` artifacts to write on failure).
+- **`steps[].outputs`** — mapping of the module's own output field name to the (globally unique) artifact name it should be registered as. `type`/`format` are not repeated here — they come from the module's own `OutputField` declaration (see [Artifact types](#artifact-types)).
+- **`steps[].on_error`** — step-level error handling; same shape as workflow-level `on_error` (`action: stop` (default) or `action: continue`, plus `output` artifacts to write on failure — these *do* need explicit `type`/`format`, since an error artifact has no module output field to source them from).
 
 ## Variables
 
